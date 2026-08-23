@@ -1,0 +1,165 @@
+digraph vision_localization_fusion {
+  graph [
+    rankdir=TB,
+    bgcolor="white",
+    pad="0.25",
+    nodesep="0.35",
+    ranksep="0.45",
+    splines=ortho,
+    labelloc="t",
+    label="RM2026 相机与激光雷达融合定位逻辑",
+    fontname="Noto Sans CJK SC",
+    fontsize=20
+  ];
+
+  node [
+    shape=box,
+    style="rounded,filled",
+    color="#334155",
+    fillcolor="#F8FAFC",
+    fontname="Noto Sans CJK SC",
+    fontsize=11,
+    margin="0.12,0.08"
+  ];
+
+  edge [
+    color="#64748B",
+    fontcolor="#475569",
+    fontname="Noto Sans CJK SC",
+    fontsize=9,
+    arrowsize=0.7
+  ];
+
+  subgraph cluster_vision {
+    label="视觉观测";
+    color="#60A5FA";
+    bgcolor="#EFF6FF";
+    style="rounded,filled";
+
+    Camera [label="最新相机帧", fillcolor="#DBEAFE"];
+    CarDet [label="车辆 TensorRT 检测\n+ BoT-SORT 临时 Track ID"];
+    CarROI [label="裁剪车辆 ROI"];
+    Camera -> CarDet -> CarROI;
+  }
+
+  subgraph cluster_lidar {
+    label="激光雷达观测";
+    color="#34D399";
+    bgcolor="#ECFDF5";
+    style="rounded,filled";
+
+    Raw [label="/livox/lidar\n原始点云", shape=ellipse, fillcolor="#D1FAE5"];
+    Register [label="场地点云配准\nGICP → 粗 NDT → 精 NDT"];
+    Dynamic [label="转换到 rm_frame\nROI 过滤 + 静态地图扣除\n近/中/远多帧累积"];
+    Cluster [label="欧式聚类\n输出目标几何中心"];
+    LidarTopic [label="/livox/lidar_cluster", shape=ellipse, fillcolor="#D1FAE5"];
+    Snapshot [label="冻结最新雷达快照\n年龄 ≤ 0.20 s\n蓝方坐标镜像"];
+
+    Raw -> Register;
+    Raw -> Dynamic;
+    Register -> Dynamic [label="TF"];
+    Dynamic -> Cluster -> LidarTopic -> Snapshot;
+  }
+
+  subgraph cluster_context {
+    label="同帧上下文";
+    color="#A78BFA";
+    bgcolor="#F5F3FF";
+    style="rounded,filled";
+
+    Faction [label="当前阵营"];
+    Ally [label="己方机器人位置反馈\n年龄 ≤ 0.15 s"];
+    Packet [label="StageAPacket\n图像、车辆、雷达、阵营、反馈\nlatest-wins 邮箱", fillcolor="#EDE9FE"];
+  }
+
+  CarROI -> Packet;
+  Snapshot -> Packet;
+  Faction -> Packet;
+  Ally -> Packet;
+
+  Gate [
+    label="时序准入\nepoch 正确、顺序递增\n整包年龄 ≤ 0.20 s",
+    shape=diamond,
+    fillcolor="#FEF3C7",
+    color="#D97706"
+  ];
+  Drop [label="丢弃旧包\n不更新状态", fillcolor="#FEE2E2", color="#DC2626"];
+  Packet -> Gate;
+  Gate -> Drop [label="失败", color="#DC2626"];
+
+  subgraph cluster_stage_b_vision {
+    label="B 阶段视觉语义与投影";
+    color="#38BDF8";
+    bgcolor="#F0F9FF";
+    style="rounded,filled";
+
+    ArmorDigit [label="车辆 ROI 批量装甲检测\n+ MobileNet 数字分类"];
+    Semantic [label="选择最佳语义候选\n彩色：唯一身份\n灰色：红/蓝同编号候选"];
+    Ray [label="车辆框底边中心\n去畸变 → 世界射线"];
+    Mesh [label="与 RMUC2026.ply 求交\n转换为场地二维投影点"];
+    Observations [label="构造 CarObservation[]\n身份候选 + BoT-ID + 投影点", fillcolor="#E0F2FE"];
+
+    ArmorDigit -> Semantic -> Observations;
+    Ray -> Mesh -> Observations;
+  }
+
+  Gate -> ArmorDigit [label="通过", color="#059669"];
+  Gate -> Ray [color="#059669"];
+
+  subgraph cluster_tracker {
+    label="CascadeMatchTracker 级联融合状态机";
+    color="#F59E0B";
+    bgcolor="#FFFBEB";
+    style="rounded,filled";
+
+    Predict [label="① 所有身份二维卡尔曼预测\n② 更新 BoT-ID 语义历史", fillcolor="#FEF3C7"];
+    Used [label="互斥占用集合\nused_classes / used_cars / used_lidar", shape=folder, fillcolor="#FFF7ED"];
+    AllyMatch [label="1. 己方反馈匹配雷达点\n优先剔除己方点"];
+    ColorMatch [label="2. 彩色身份—车辆—雷达三元组\n语义 + 射线距离\n全局互斥最优匹配", fillcolor="#FED7AA"];
+    GrayKeep [label="3. 灰甲维持已确认身份\n加入历史位置约束"];
+    History [label="4. 敌方历史预测—剩余雷达点\n匈牙利匹配"];
+    GrayGuess [label="5. 灰甲阵营模糊匹配\n结果标记为猜测"];
+    RadarGuess [label="6. 剩余雷达点猜测敌方身份\n按角色和半场优先级"];
+    Unmatched [label="7. 未匹配目标退化\nKF 续航 → 固定点 → 无效"];
+    Finalize [label="整理卡尔曼结果\n身份、位置、来源与有效性", fillcolor="#FEF3C7"];
+
+    Predict -> AllyMatch -> ColorMatch -> GrayKeep -> History -> GrayGuess -> RadarGuess -> Unmatched -> Finalize;
+    Used -> AllyMatch [style=dashed, arrowhead=none];
+    Used -> ColorMatch [style=dashed, arrowhead=none];
+    Used -> GrayKeep [style=dashed, arrowhead=none];
+    Used -> History [style=dashed, arrowhead=none];
+    Used -> GrayGuess [style=dashed, arrowhead=none];
+    Used -> RadarGuess [style=dashed, arrowhead=none];
+  }
+
+  Observations -> Predict;
+
+  KFRule [
+    label="各级可靠位置观测直接更新二维卡尔曼\n首次确认/猜测身份/跳变≥2.5m 时重置",
+    fillcolor="#DCFCE7",
+    color="#16A34A"
+  ];
+  KFRule -> ColorMatch [style=dashed, arrowhead=none, constraint=false];
+  KFRule -> GrayKeep [style=dashed, arrowhead=none, constraint=false];
+  KFRule -> History [style=dashed, arrowhead=none, constraint=false];
+
+  Output [
+    label="CompletedFrame 原子提交\n10 个机器人二维位置（米）\n身份状态 + 空间状态 + 数据来源 + 猜测标记",
+    fillcolor="#E0E7FF",
+    color="#4F46E5"
+  ];
+  Finalize -> Output;
+
+  UI [label="UI 地图与异步叠图", fillcolor="#F1F5F9"];
+  TF [label="调试 TF / PoseArray", fillcolor="#F1F5F9"];
+  Referee [label="裁判系统 0x0305\n坐标转换为厘米", fillcolor="#F1F5F9"];
+  Metrics [label="运行性能与匹配统计", fillcolor="#F1F5F9"];
+
+  Output -> UI;
+  Output -> TF;
+  Output -> Referee;
+  Output -> Metrics;
+
+  {rank=same; Camera; Raw; Faction; Ally}
+  {rank=same; UI; TF; Referee; Metrics}
+}

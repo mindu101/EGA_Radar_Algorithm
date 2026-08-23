@@ -1,0 +1,780 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RM2026 裁判串口测试注入站</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111d;
+      --panel: #0d1b2a;
+      --panel-2: #122437;
+      --line: #24425f;
+      --text: #eef7ff;
+      --muted: #91a9bf;
+      --cyan: #36d9c4;
+      --blue: #4ba3ff;
+      --amber: #ffbd59;
+      --red: #ff6577;
+      --green: #55dd91;
+      --shadow: 0 18px 50px rgba(0, 0, 0, .28);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, "Noto Sans SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at 15% 5%, rgba(54, 217, 196, .10), transparent 28rem),
+        radial-gradient(circle at 90% 10%, rgba(75, 163, 255, .10), transparent 30rem),
+        var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      backdrop-filter: blur(18px);
+      background: rgba(7, 17, 29, .88);
+      border-bottom: 1px solid rgba(145, 169, 191, .14);
+    }
+    .header-inner, main { width: min(1380px, calc(100% - 32px)); margin: 0 auto; }
+    .header-inner {
+      min-height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .brand { display: flex; align-items: center; gap: 13px; }
+    .logo {
+      width: 42px; height: 42px; border-radius: 13px;
+      display: grid; place-items: center;
+      color: #051118; font-weight: 900; letter-spacing: -.04em;
+      background: linear-gradient(135deg, var(--cyan), #8ef4e6);
+      box-shadow: 0 0 28px rgba(54, 217, 196, .25);
+    }
+    h1 { font-size: 18px; margin: 0; letter-spacing: .02em; }
+    .subtitle { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 8px 12px; color: var(--muted); font-size: 13px;
+      background: rgba(13, 27, 42, .8);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .status-pill.active { border-color: rgba(255, 101, 119, .6); color: #ffdce1; }
+    .status-pill.active .dot { background: var(--red); box-shadow: 0 0 14px var(--red); }
+    main { padding: 26px 0 64px; }
+    .warning {
+      border: 1px solid rgba(255, 189, 89, .44);
+      background: linear-gradient(90deg, rgba(255, 189, 89, .12), rgba(255, 101, 119, .07));
+      color: #ffe3b5;
+      border-radius: 16px; padding: 15px 18px; margin-bottom: 20px;
+      display: flex; gap: 12px; align-items: flex-start; line-height: 1.55;
+    }
+    .warning strong { color: var(--amber); }
+    .control-grid {
+      display: grid;
+      grid-template-columns: 1.2fr .8fr;
+      gap: 18px;
+      margin-bottom: 18px;
+    }
+    .panel, .card {
+      background: linear-gradient(145deg, rgba(18, 36, 55, .94), rgba(11, 25, 39, .96));
+      border: 1px solid rgba(76, 113, 145, .32);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+    }
+    .panel { padding: 20px; }
+    .panel-title, .card-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    h2, h3 { margin: 0; }
+    h2 { font-size: 16px; }
+    h3 { font-size: 15px; }
+    .form-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-top: 16px; }
+    label.field { display: flex; flex-direction: column; gap: 7px; color: var(--muted); font-size: 12px; }
+    input, select {
+      min-height: 40px; border: 1px solid var(--line); border-radius: 10px;
+      background: #091725; color: var(--text); padding: 8px 11px; outline: none;
+    }
+    input:focus, select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(54, 217, 196, .10); }
+    input[type="number"] { width: 126px; }
+    button {
+      border: 0; border-radius: 10px; min-height: 40px; padding: 9px 15px;
+      color: var(--text); font-weight: 700; cursor: pointer;
+      background: #203b55; transition: .15s ease;
+    }
+    button:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.12); }
+    button:disabled { opacity: .42; cursor: not-allowed; }
+    .primary { background: linear-gradient(135deg, #19a992, var(--cyan)); color: #031511; }
+    .danger { background: linear-gradient(135deg, #d94358, var(--red)); }
+    .secondary { background: #1a344d; }
+    .confirm-input { width: 150px; }
+    .metrics {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px;
+    }
+    .metric {
+      border: 1px solid rgba(76, 113, 145, .28); border-radius: 12px;
+      padding: 12px; background: rgba(7, 17, 29, .35);
+    }
+    .metric-label { color: var(--muted); font-size: 11px; }
+    .metric-value { font-size: 17px; font-weight: 800; margin-top: 5px; }
+    .error { color: #ff9daa; font-size: 12px; min-height: 18px; margin-top: 12px; }
+    .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .card { padding: 18px; }
+    .card.wide { grid-column: 1 / -1; }
+    .head-left { display: flex; align-items: center; gap: 10px; }
+    .chip {
+      border: 1px solid var(--line); color: var(--cyan); background: rgba(54, 217, 196, .07);
+      border-radius: 999px; padding: 4px 8px; font-size: 11px; white-space: nowrap;
+    }
+    .chip.syncing { color: var(--amber); border-color: rgba(255, 189, 89, .5); }
+    .chip.synced { color: var(--green); border-color: rgba(85, 221, 145, .45); }
+    .chip.sync-error { color: var(--red); border-color: rgba(255, 101, 119, .55); }
+    .frequency {
+      display: inline-flex; align-items: center; gap: 6px; color: var(--muted);
+      font-size: 11px; white-space: nowrap;
+    }
+    .frequency input {
+      width: 72px; min-height: 30px; padding: 4px 7px; text-align: right;
+      border-radius: 8px;
+    }
+    .switch { position: relative; width: 46px; height: 26px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0; border-radius: 999px; background: #2c4255;
+      cursor: pointer; transition: .2s;
+    }
+    .slider::before {
+      content: ""; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px;
+      border-radius: 50%; background: #dce9f3; transition: .2s;
+    }
+    .switch input:checked + .slider { background: var(--cyan); }
+    .switch input:checked + .slider::before { transform: translateX(20px); background: #052019; }
+    .card-note { color: var(--muted); font-size: 12px; line-height: 1.55; margin-top: 8px; }
+    .semantic-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+    .semantic-grid .field input, .semantic-grid .field select { width: 100%; }
+    .target-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 9px; margin-top: 16px; }
+    .target {
+      border: 1px solid var(--line); border-radius: 12px; padding: 12px 8px;
+      text-align: center; background: rgba(7, 17, 29, .34);
+    }
+    .target input { min-height: auto; accent-color: var(--cyan); margin-bottom: 8px; }
+    .target span { display: block; font-size: 12px; color: var(--muted); }
+    .map-wrap { overflow-x: auto; margin-top: 15px; }
+    table { border-collapse: collapse; width: 100%; min-width: 720px; }
+    th, td { border-bottom: 1px solid rgba(76, 113, 145, .20); padding: 9px 8px; text-align: left; }
+    th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    td { font-size: 13px; }
+    td input { width: 100%; min-width: 100px; }
+    details { margin-top: 18px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+    .preview-list { display: grid; gap: 8px; margin-top: 10px; }
+    .preview {
+      border: 1px solid rgba(76, 113, 145, .25); border-radius: 10px; padding: 10px;
+      background: rgba(3, 11, 18, .6); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+      color: #b7d7ec; overflow-wrap: anywhere;
+    }
+    .footer-note { color: var(--muted); font-size: 12px; line-height: 1.7; margin-top: 18px; }
+    .toast {
+      position: fixed; right: 22px; bottom: 22px; z-index: 20;
+      background: #17334a; border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px 16px; box-shadow: var(--shadow); opacity: 0; pointer-events: none;
+      transform: translateY(10px); transition: .2s;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.bad { border-color: var(--red); color: #ffdce1; }
+    @media (max-width: 900px) {
+      .control-grid, .cards { grid-template-columns: 1fr; }
+      .card.wide { grid-column: auto; }
+      .semantic-grid { grid-template-columns: 1fr 1fr; }
+      .target-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 560px) {
+      .header-inner, main { width: min(100% - 20px, 1380px); }
+      .header-inner { align-items: flex-start; padding: 13px 0; }
+      .status-pill { padding: 7px 9px; }
+      .metrics { grid-template-columns: 1fr; }
+      .semantic-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="brand">
+        <div class="logo">TX</div>
+        <div>
+          <h1 id="pageTitle">RM2026 裁判串口测试注入站</h1>
+          <div id="pageSubtitle" class="subtitle">语义字段编辑 · 正式协议封包 · 发送频率实时可调</div>
+        </div>
+      </div>
+      <div id="topStatus" class="status-pill"><span class="dot"></span><span>注入已停止</span></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="warning">
+      <div>⚠</div>
+      <div id="warningText"><strong>仅限离线联调。</strong>本页面不会由正式 start.sh 启动；页面进程存在时，正式启动脚本会拒绝运行。开始注入会独占裁判串口，最长10分钟自动停止。</div>
+    </div>
+
+    <section class="control-grid">
+      <div class="panel">
+        <div class="panel-title">
+          <h2>测试控制</h2>
+          <span id="modeChip" class="chip">读取中</span>
+        </div>
+        <div class="form-row">
+          <label class="field">注入位置
+            <select id="injectionMode">
+              <option value="late-attach">晚注入：覆盖正式主程序数据源</option>
+              <option value="info-wave-attach">早注入：接入正式start链路</option>
+            </select>
+          </label>
+          <label id="sideField" class="field">己方阵营
+            <select id="side">
+              <option value="red">红方（雷达9）</option>
+              <option value="blue">蓝方（雷达109）</option>
+            </select>
+          </label>
+          <label class="field">二次确认文字
+            <input id="confirmation" class="confirm-input" autocomplete="off" placeholder="仅用于测试">
+          </label>
+          <button id="applyButton" class="secondary" type="button">立即同步</button>
+          <button id="startButton" class="primary" type="button">开始注入</button>
+          <button id="stopButton" class="danger" type="button" disabled>立即停止</button>
+          <span id="syncStatus" class="chip synced">字段已同步</span>
+        </div>
+        <div id="errorText" class="error"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title"><h2>实时状态</h2><span id="serialState" class="chip">未连接</span></div>
+        <div class="metrics">
+          <div class="metric"><div class="metric-label">安全剩余时间</div><div id="remaining" class="metric-value">—</div></div>
+          <div class="metric"><div class="metric-label">成功发送总帧</div><div id="totalSent" class="metric-value">0</div></div>
+          <div class="metric"><div class="metric-label">失败次数</div><div id="failedCount" class="metric-value">0</div></div>
+        </div>
+        <div id="lastFrame" class="card-note">尚未发送任何测试帧。</div>
+      </div>
+    </section>
+
+    <section class="cards">
+      <article class="card wide">
+        <div class="card-head">
+          <div class="head-left"><h3 id="radarMapTitle">全场坐标 · 0x0305</h3><label class="frequency">频率 <input id="frequency-radar_map" type="number" min="0.1" max="20" step="0.1" value="5"> Hz</label></div>
+          <label class="switch" title="启用坐标发送"><input id="enable-radar_map" type="checkbox"><span class="slider"></span></label>
+        </div>
+        <div id="radarMapNote" class="card-note">单位为厘米。按正式 map_robot_data_t 顺序发送24个 uint16；命令码、帧序号与CRC均自动生成。</div>
+        <div class="map-wrap">
+          <table>
+            <thead><tr><th>阵营</th><th>机器人</th><th>X / cm</th><th>Y / cm</th></tr></thead>
+            <tbody id="coordinateRows"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article id="decisionCard" class="card">
+        <div class="card-head">
+          <div class="head-left"><h3>雷达自主决策 · 0x0121</h3><label class="frequency">频率 <input id="frequency-decision" type="number" min="0.1" max="20" step="0.1" value="5"> Hz</label></div>
+          <label class="switch"><input id="enable-decision" type="checkbox"><span class="slider"></span></label>
+        </div>
+        <div class="card-note">接收者固定为服务器0x8080。密钥只允许正式链路使用的“不验证”和“验证”。</div>
+        <div class="semantic-grid">
+          <label class="field">双倍易伤请求序号
+            <input id="decision-radar_cmd" type="number" min="0" max="255" value="0">
+          </label>
+          <label class="field">密钥动作
+            <select id="decision-key_command">
+              <option value="0">不验证密钥</option>
+              <option value="2">验证对方密钥</option>
+            </select>
+          </label>
+          <label class="field">6字符密钥
+            <input id="decision-key_text" maxlength="6" value="AAAAAA">
+          </label>
+        </div>
+      </article>
+
+      <article id="dartCard" class="card">
+        <div class="card-head">
+          <div class="head-left"><h3>无人机状态 · 0x0234</h3><label class="frequency">频率 <input id="frequency-dart" type="number" min="0.1" max="20" step="0.1" value="5"> Hz</label></div>
+          <label class="switch"><input id="enable-dart" type="checkbox"><span class="slider"></span></label>
+        </div>
+        <div class="card-note">接收者固定为己方空中机器人。与0x0121同时启用时保留正式代码的0.2秒错开发送。</div>
+        <div class="semantic-grid">
+          <label class="field">双倍易伤流程阶段
+            <select id="dart-trigger_state">
+              <option value="0">空闲</option>
+              <option value="1">已获得机会，等待确认</option>
+              <option value="2">正在请求触发</option>
+              <option value="3">双倍易伤已激活</option>
+              <option value="4">冷却中</option>
+            </select>
+          </label>
+          <label class="field">剩余可触发次数
+            <select id="dart-remaining_count"><option>0</option><option>1</option><option>2</option></select>
+          </label>
+          <label class="field">自瞄反制阶段
+            <select id="dart-autoaim_stage">
+              <option value="0">第一次瞄准中</option>
+              <option value="1">第一次反制成功</option>
+              <option value="2">第二次瞄准中</option>
+              <option value="3">第二次反制成功</option>
+              <option value="4">等待第三次控制信号</option>
+              <option value="5">已收信号，第三次瞄准中</option>
+              <option value="6">第三次反制成功</option>
+            </select>
+          </label>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div class="head-left"><h3 id="engineerTitle">工程信息 · 0x02AA</h3><label class="frequency">频率 <input id="frequency-engineer" type="number" min="0.1" max="20" step="0.1" value="5"> Hz</label></div>
+          <label class="switch"><input id="enable-engineer" type="checkbox"><span class="slider"></span></label>
+        </div>
+        <div id="engineerNote" class="card-note">接收者固定为己方工程。页面只编辑两个实际业务量，自动按 uint16 小端编码。</div>
+        <div class="semantic-grid">
+          <label class="field">对方空中允许发弹量
+            <input id="engineer-aerial_ammo" type="number" min="0" max="65535" value="0">
+          </label>
+          <label class="field">对方剩余金币
+            <input id="engineer-remaining_coins" type="number" min="0" max="65535" value="0">
+          </label>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div class="head-left"><h3 id="sentryTitle">哨兵可瞄准状态 · 0x0233</h3><label class="frequency">频率 <input id="frequency-sentry" type="number" min="0.1" max="20" step="0.1" value="5"> Hz</label></div>
+          <label class="switch"><input id="enable-sentry" type="checkbox"><span class="slider"></span></label>
+        </div>
+        <div id="sentryNote" class="card-note">接收者固定为己方哨兵。bit5表示区域建议，bit6～7自动保持1。</div>
+        <div id="sentryTargetGrid" class="target-grid">
+          <label class="target"><input id="sentry-hero_targetable" type="checkbox"><span>英雄可瞄准</span></label>
+          <label class="target"><input id="sentry-engineer_targetable" type="checkbox"><span>工程可瞄准</span></label>
+          <label class="target"><input id="sentry-standard_3_targetable" type="checkbox"><span>3号可瞄准</span></label>
+          <label class="target"><input id="sentry-standard_4_targetable" type="checkbox"><span>4号可瞄准</span></label>
+          <label class="target"><input id="sentry-sentry_targetable" type="checkbox"><span>哨兵可瞄准</span></label>
+          <label id="sentry-hole-choice" class="target"><input id="sentry-prefer_long_hole" type="checkbox"><span>建议前往 long_hole</span></label>
+        </div>
+      </article>
+
+      <article id="robotMulticastCard" class="card wide">
+        <div class="card-head">
+          <div class="head-left"><h3>多机器人摘要 · 0x02AB</h3><label class="frequency robot-direct-control">频率 <input id="frequency-robot_multicast" type="number" min="0.1" max="20" step="0.1" value="8"> Hz</label></div>
+          <label class="switch robot-direct-control"><input id="enable-robot_multicast" type="checkbox"><span class="slider"></span></label>
+        </div>
+        <div id="robotMulticastNote" class="card-note">同一份30字节USER按正式权重发给己方英雄、3号和4号；工程发弹量保留字段固定为0。</div>
+        <div class="map-wrap">
+          <table>
+            <thead><tr><th>对方机器人</th><th class="robot-hp-column">血量比例 / %</th><th>允许发弹量</th><th>防御增益 / %</th><th>负防御增益 / %</th><th>是否可瞄准</th></tr></thead>
+            <tbody>
+              <tr><td>英雄</td><td class="robot-hp-column"><input id="robot-hero-hp_percent" type="number" min="0" max="100" value="100"></td><td><input id="robot-hero-ammo" type="number" min="0" max="65535" value="0"></td><td><input id="robot-hero-defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-hero-negative_defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-hero-targetable" type="checkbox" checked></td></tr>
+              <tr><td>工程</td><td class="robot-hp-column"><input id="robot-engineer-hp_percent" type="number" min="0" max="100" value="100"></td><td><input id="robot-engineer-ammo" type="number" value="0" disabled title="保留字段固定为0"></td><td><input id="robot-engineer-defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-engineer-negative_defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-engineer-targetable" type="checkbox" checked></td></tr>
+              <tr><td>3号步兵</td><td class="robot-hp-column"><input id="robot-standard_3-hp_percent" type="number" min="0" max="100" value="100"></td><td><input id="robot-standard_3-ammo" type="number" min="0" max="65535" value="0"></td><td><input id="robot-standard_3-defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-standard_3-negative_defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-standard_3-targetable" type="checkbox" checked></td></tr>
+              <tr><td>4号步兵</td><td class="robot-hp-column"><input id="robot-standard_4-hp_percent" type="number" min="0" max="100" value="100"></td><td><input id="robot-standard_4-ammo" type="number" min="0" max="65535" value="0"></td><td><input id="robot-standard_4-defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-standard_4-negative_defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-standard_4-targetable" type="checkbox" checked></td></tr>
+              <tr><td>哨兵</td><td class="robot-hp-column"><input id="robot-sentry-hp_percent" type="number" min="0" max="100" value="100"></td><td><input id="robot-sentry-ammo" type="number" min="0" max="65535" value="0"></td><td><input id="robot-sentry-defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-sentry-negative_defense" type="number" min="0" max="255" value="0"></td><td><input id="robot-sentry-targetable" type="checkbox" checked></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article id="healthCard" class="card wide" hidden>
+        <div class="card-head">
+          <div class="head-left"><h3>解析结果 · 0x0A02 机器人血量</h3><label class="frequency">解析频率 <input id="frequency-health" type="number" min="0.1" max="20" step="0.1" value="5"> Hz</label></div>
+          <label class="switch"><input id="enable-health" type="checkbox"><span class="slider"></span></label>
+        </div>
+        <div class="card-note">模拟官方0x0A02已通过CRC并被完整解析。正式代码会维护五类机器人最大血量，并据此生成0x02AB中的血量比例。</div>
+        <div class="semantic-grid">
+          <label class="field">英雄血量<input id="health-hero" type="number" min="0" max="65535" value="0"></label>
+          <label class="field">工程血量<input id="health-engineer" type="number" min="0" max="65535" value="0"></label>
+          <label class="field">3号步兵血量<input id="health-standard_3" type="number" min="0" max="65535" value="0"></label>
+          <label class="field">4号步兵血量<input id="health-standard_4" type="number" min="0" max="65535" value="0"></label>
+          <label class="field">保留字段<input id="health-reserved" type="number" min="0" max="65535" value="0"></label>
+          <label class="field">哨兵血量<input id="health-sentry" type="number" min="0" max="65535" value="0"></label>
+        </div>
+      </article>
+    </section>
+
+    <details>
+      <summary id="previewSummary">查看由正式协议代码生成的帧预览</summary>
+      <div id="previewList" class="preview-list"></div>
+    </details>
+    <div id="footerNote" class="footer-note">
+      测试发送频率可在0.1～20 Hz内实时修改；cmd_id、data_cmd_id、sender_id、receiver_id、帧序号和CRC仍由正式协议代码固定生成。测试注入器与正式主程序共用串口互斥锁，不能同时打开同一裁判串口。
+    </div>
+  </main>
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const API_TOKEN = "__API_TOKEN__";
+    const robots = [
+      ["enemy_hero", "对方", "英雄"], ["enemy_engineer", "对方", "工程"],
+      ["enemy_standard_3", "对方", "3号步兵"], ["enemy_standard_4", "对方", "4号步兵"],
+      ["enemy_drone", "对方", "空中"], ["enemy_sentry", "对方", "哨兵"],
+      ["self_hero", "己方", "英雄"], ["self_engineer", "己方", "工程"],
+      ["self_standard_3", "己方", "3号步兵"], ["self_standard_4", "己方", "4号步兵"],
+      ["self_drone", "己方", "空中"], ["self_sentry", "己方", "哨兵"]
+    ];
+    const messageKeys = ["radar_map", "decision", "dart", "engineer", "sentry", "robot_multicast"];
+    const configKeys = [...messageKeys, "health"];
+    const multicastRobotKeys = ["hero", "engineer", "standard_3", "standard_4", "sentry"];
+    let infoWaveMode = false;
+    let configuredMode = "";
+    let initialized = false;
+    let autoApplyTimer = null;
+    let applyChain = Promise.resolve();
+
+    function buildCoordinateRows() {
+      const body = document.getElementById("coordinateRows");
+      body.innerHTML = robots.map(([key, side, label]) => `
+        <tr data-robot-key="${key}">
+          <td>${side}</td><td>${label}</td>
+          <td><input id="coord-${key}_x" type="number" min="0" max="65535" value="0"></td>
+          <td><input id="coord-${key}_y" type="number" min="0" max="65535" value="0"></td>
+        </tr>`).join("");
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          "X-Test-Token": API_TOKEN,
+          ...(options.headers || {})
+        }
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "请求失败");
+      return payload;
+    }
+
+    function n(id) { return Number(document.getElementById(id).value); }
+    function b(id) { return document.getElementById(id).checked; }
+
+    function collectConfig() {
+      const coordinates = {};
+      robots.forEach(([key]) => {
+        coordinates[`${key}_x`] = n(`coord-${key}_x`);
+        coordinates[`${key}_y`] = n(`coord-${key}_y`);
+      });
+      const robotMulticast = {
+        enabled: b("enable-robot_multicast"),
+        frequency_hz: n("frequency-robot_multicast")
+      };
+      multicastRobotKeys.forEach(key => {
+        robotMulticast[key] = {
+          hp_percent: n(`robot-${key}-hp_percent`),
+          ammo: key === "engineer" ? 0 : n(`robot-${key}-ammo`),
+          defense: n(`robot-${key}-defense`),
+          negative_defense: n(`robot-${key}-negative_defense`),
+          targetable: b(`robot-${key}-targetable`)
+        };
+      });
+      return {
+        side: document.getElementById("side").value,
+        messages: {
+          radar_map: {
+            enabled: b("enable-radar_map"),
+            frequency_hz: n("frequency-radar_map"),
+            coordinates
+          },
+          decision: {
+            enabled: b("enable-decision"),
+            frequency_hz: n("frequency-decision"),
+            radar_cmd: n("decision-radar_cmd"),
+            key_command: n("decision-key_command"),
+            key_text: document.getElementById("decision-key_text").value
+          },
+          dart: {
+            enabled: b("enable-dart"),
+            frequency_hz: n("frequency-dart"),
+            trigger_state: n("dart-trigger_state"),
+            remaining_count: n("dart-remaining_count"),
+            autoaim_stage: n("dart-autoaim_stage")
+          },
+          engineer: {
+            enabled: b("enable-engineer"),
+            frequency_hz: n("frequency-engineer"),
+            aerial_ammo: n("engineer-aerial_ammo"),
+            remaining_coins: n("engineer-remaining_coins")
+          },
+          sentry: {
+            enabled: b("enable-sentry"),
+            frequency_hz: n("frequency-sentry"),
+            hero_targetable: b("sentry-hero_targetable"),
+            engineer_targetable: b("sentry-engineer_targetable"),
+            standard_3_targetable: b("sentry-standard_3_targetable"),
+            standard_4_targetable: b("sentry-standard_4_targetable"),
+            sentry_targetable: b("sentry-sentry_targetable"),
+            prefer_long_hole: b("sentry-prefer_long_hole")
+          },
+          robot_multicast: robotMulticast,
+          health: {
+            enabled: b("enable-health"),
+            frequency_hz: n("frequency-health"),
+            hero: n("health-hero"),
+            engineer: n("health-engineer"),
+            standard_3: n("health-standard_3"),
+            standard_4: n("health-standard_4"),
+            reserved: n("health-reserved"),
+            sentry: n("health-sentry")
+          }
+        }
+      };
+    }
+
+    function populate(config) {
+      document.getElementById("side").value = config.side;
+      configKeys.forEach(key => {
+        document.getElementById(`enable-${key}`).checked = config.messages[key].enabled;
+        document.getElementById(`frequency-${key}`).value = config.messages[key].frequency_hz;
+      });
+      Object.entries(config.messages.radar_map.coordinates).forEach(([key, value]) => {
+        document.getElementById(`coord-${key}`).value = value;
+      });
+      const d = config.messages.decision;
+      document.getElementById("decision-radar_cmd").value = d.radar_cmd;
+      document.getElementById("decision-key_command").value = d.key_command;
+      document.getElementById("decision-key_text").value = d.key_text;
+      const dart = config.messages.dart;
+      document.getElementById("dart-trigger_state").value = dart.trigger_state;
+      document.getElementById("dart-remaining_count").value = dart.remaining_count;
+      document.getElementById("dart-autoaim_stage").value = dart.autoaim_stage;
+      const engineer = config.messages.engineer;
+      document.getElementById("engineer-aerial_ammo").value = engineer.aerial_ammo;
+      document.getElementById("engineer-remaining_coins").value = engineer.remaining_coins;
+      const sentry = config.messages.sentry;
+      ["hero_targetable", "engineer_targetable", "standard_3_targetable", "standard_4_targetable", "sentry_targetable"]
+        .forEach(key => document.getElementById(`sentry-${key}`).checked = sentry[key]);
+      const robotMulticast = config.messages.robot_multicast;
+      multicastRobotKeys.forEach(key => {
+        const robot = robotMulticast[key];
+        ["hp_percent", "ammo", "defense", "negative_defense"].forEach(field => {
+          document.getElementById(`robot-${key}-${field}`).value = robot[field];
+        });
+        document.getElementById(`robot-${key}-targetable`).checked = robot.targetable;
+      });
+      const health = config.messages.health;
+      ["hero", "engineer", "standard_3", "standard_4", "reserved", "sentry"]
+        .forEach(key => document.getElementById(`health-${key}`).value = health[key]);
+    }
+
+    function configureMode(mode) {
+      infoWaveMode = mode.startsWith("info-wave");
+      const lateAttachMode = mode.startsWith("late-attach");
+      configuredMode = mode;
+      document.getElementById("injectionMode").value = infoWaveMode
+        ? "info-wave-attach"
+        : "late-attach";
+      document.getElementById("healthCard").hidden = !infoWaveMode;
+      document.getElementById("decisionCard").hidden = infoWaveMode;
+      document.getElementById("dartCard").hidden = infoWaveMode;
+      document.getElementById("sideField").hidden = infoWaveMode || lateAttachMode;
+      document.querySelectorAll(".frequency").forEach(element => {
+        element.hidden = lateAttachMode;
+      });
+      document.querySelectorAll("#coordinateRows tr").forEach(row => {
+        row.hidden = infoWaveMode && row.dataset.robotKey.startsWith("self_");
+      });
+      document.getElementById("sentry-hole-choice").hidden = infoWaveMode;
+      document.getElementById("sentryTargetGrid").hidden = infoWaveMode;
+      document.querySelectorAll(".robot-direct-control").forEach(element => {
+        element.hidden = element.classList.contains("frequency")
+          ? (infoWaveMode || lateAttachMode)
+          : infoWaveMode;
+      });
+      document.querySelectorAll(".robot-hp-column").forEach(element => {
+        element.hidden = infoWaveMode;
+      });
+
+      if (infoWaveMode) {
+        document.getElementById("pageTitle").textContent = "RM2026 信息波正式后链路测试站";
+        document.getElementById("pageSubtitle").textContent = "模拟解析成功 · 正式UDP relay · 正式缓存与串口调度";
+        document.getElementById("warningText").innerHTML = "<strong>全链路测试正在授权。</strong>本页面只向带测试参数启动的正式start链路注入解析结果；普通start不接受附着。完成后务必执行2.sh撤销授权。";
+        document.getElementById("radarMapTitle").textContent = "解析结果 · 0x0A01 对方机器人坐标";
+        document.getElementById("radarMapNote").textContent = "每个发送节拍模拟一次新的0x0A01完整有效帧；只包含对方六类机器人坐标。后续是否采用、250ms超时回退和0x0305的5Hz发送全部由正式主程序决定。";
+        document.getElementById("engineerTitle").textContent = "解析结果 · 0x0A03 发弹量 + 0x0A04 经济";
+        document.getElementById("engineerNote").textContent = "每个节拍依次产生两个独立解析事件，正式下游缓存后再按开启模式的0x02AA 5Hz规则发送。";
+        document.getElementById("sentryTitle").textContent = "解析结果 · 0x0A05 增益与主要状态";
+        document.getElementById("sentryNote").textContent = "页面语义会转换为0x0A05主要状态；0x0233仍由正式代码根据fresh和比赛阶段生成。";
+        document.getElementById("robotMulticastNote").textContent = "血量由下方0x0A02原始血量卡控制；本表编辑英雄、3号、4号、哨兵弹量以及五类机器人的防御、负防御和可瞄准状态，最终由正式代码生成0x02AB。工程发弹量固定为0。";
+        document.getElementById("previewSummary").textContent = "查看模拟 MATLAB 输出的 InfoMsgBag v3 预览";
+        document.getElementById("footerNote").textContent = "解析频率表示测试工具假装成功解析到新命令的频率。每次事件都会推进InfoMsgBag序号和对应命令fresh；最终串口频率、比赛阶段门控、接收者ID和CRC全部由正式RefereeCommManager决定。";
+      } else {
+        document.getElementById("pageTitle").textContent = "RM2026 裁判串口测试注入站";
+        document.getElementById("pageSubtitle").textContent = "语义字段编辑 · 正式协议封包 · 发送频率实时可调";
+        document.getElementById("warningText").innerHTML = "<strong>全链路测试正在授权。</strong>晚注入会在正式主程序组包前覆盖页面已启用的数据源；正式0x0305 5Hz及交互包5/5/5/5/8槽位调度、比赛阶段门控、序号、CRC和串口线程保持不变。";
+        document.getElementById("radarMapTitle").textContent = "全场坐标 · 0x0305";
+        document.getElementById("radarMapNote").textContent = "单位为厘米。按正式 map_robot_data_t 顺序发送24个 uint16；命令码、帧序号与CRC均自动生成。";
+        document.getElementById("engineerTitle").textContent = "工程信息 · 0x02AA";
+        document.getElementById("engineerNote").textContent = "接收者固定为己方工程。页面只编辑两个实际业务量，自动按 uint16 小端编码。";
+        document.getElementById("sentryTitle").textContent = "哨兵可瞄准状态 · 0x0233";
+        document.getElementById("sentryNote").textContent = "接收者固定为己方哨兵。bit5表示区域建议，bit6～7自动保持1。";
+        document.getElementById("robotMulticastNote").textContent = "同一份30字节USER按英雄:3号:4号=1:2:2轮询发送。工程允许发弹量是保留字段并固定为0。";
+        document.getElementById("previewSummary").textContent = "查看由正式协议代码生成的帧预览";
+        document.getElementById("footerNote").textContent = "晚注入只覆盖页面中已启用的数据源；0x0305仍按5Hz发送，开启摘要后0x0121/0x0234/0x02AA/0x0233/0x02AB按5/5/5/5/8槽位轮询。页面停止或心跳超过500ms后自动恢复真实数据源。";
+      }
+    }
+
+    async function changeInjectionMode() {
+      const mode = document.getElementById("injectionMode").value;
+      const payload = await api("/api/mode", {
+        method: "POST",
+        body: JSON.stringify({ mode })
+      });
+      configureMode(payload.mode);
+      toast(mode === "info-wave-attach" ? "已切换为早注入" : "已切换为晚注入");
+      await refreshState();
+    }
+
+    function toast(message, bad = false) {
+      const element = document.getElementById("toast");
+      element.textContent = message;
+      element.className = `toast show${bad ? " bad" : ""}`;
+      setTimeout(() => element.className = "toast", 2400);
+    }
+
+    function setSyncStatus(text, className) {
+      const element = document.getElementById("syncStatus");
+      element.textContent = text;
+      element.className = `chip ${className}`;
+    }
+
+    function applyFields(silent = false) {
+      if (autoApplyTimer !== null) {
+        clearTimeout(autoApplyTimer);
+        autoApplyTimer = null;
+      }
+      const config = collectConfig();
+      setSyncStatus("同步中…", "syncing");
+      applyChain = applyChain
+        .catch(() => {})
+        .then(() => api("/api/config", {
+          method: "POST",
+          body: JSON.stringify({ config })
+        }))
+        .then(payload => {
+          setSyncStatus("字段已同步", "synced");
+          if (!silent) toast("字段已同步，下一发送周期使用新值");
+          return payload.config;
+        })
+        .catch(error => {
+          setSyncStatus("同步失败", "sync-error");
+          throw error;
+        });
+      return applyChain;
+    }
+
+    function scheduleAutoApply(event) {
+      if (!initialized || ["confirmation", "injectionMode"].includes(event.target.id)) return;
+      setSyncStatus("等待同步…", "syncing");
+      if (autoApplyTimer !== null) clearTimeout(autoApplyTimer);
+      autoApplyTimer = setTimeout(() => {
+        autoApplyTimer = null;
+        applyFields(true).catch(error => {
+          document.getElementById("errorText").textContent = error.message;
+          toast(error.message, true);
+        });
+      }, 300);
+    }
+
+    async function startInjection() {
+      await applyFields(true);
+      await api("/api/control/start", {
+        method: "POST",
+        body: JSON.stringify({ confirmation: document.getElementById("confirmation").value })
+      });
+      document.getElementById("confirmation").value = "";
+      toast("测试注入已开始");
+      await refreshState();
+    }
+
+    async function stopInjection() {
+      await api("/api/control/stop", { method: "POST", body: "{}" });
+      toast("测试注入已停止");
+      await refreshState();
+    }
+
+    function renderPreview(preview) {
+      const labels = {
+        radar_map: "0x0305 全场坐标", decision: "0x0121 雷达自主决策",
+        dart: "0x0234 无人机状态", engineer: "0x02AA 工程信息", sentry: "0x0233 哨兵状态"
+      };
+      document.getElementById("previewList").innerHTML = Object.entries(preview).map(([key, item]) => {
+        const label = infoWaveMode ? `${item.cmd_id} InfoMsgBag v3` : labels[key];
+        const masks = infoWaveMode ? ` · valid=0x${item.valid_mask.toString(16).padStart(2, "0")} · fresh=0x${item.fresh_mask.toString(16).padStart(2, "0")} · seq=${item.seq}` : "";
+        return `<div class="preview"><strong>${label}</strong> · ${item.length}B · ${item.enabled ? "已启用" : "未启用"}${masks}<br>${item.hex}</div>`;
+      }).join("");
+    }
+
+    function renderState(state) {
+      if (!initialized) {
+        configureMode(state.mode);
+        populate(state.config);
+        initialized = true;
+      } else if (configuredMode !== state.mode) {
+        configureMode(state.mode);
+      }
+      const top = document.getElementById("topStatus");
+      top.className = `status-pill${state.active ? " active" : ""}`;
+      top.innerHTML = `<span class="dot"></span><span>${state.active ? "正在注入测试数据" : "注入已停止"}</span>`;
+      document.getElementById("modeChip").textContent = infoWaveMode
+        ? (state.mode.includes("dry-run") ? "解析早注 · DRY-RUN" : "解析早注 · 正式后链路")
+        : (state.mode.includes("dry-run") ? "晚注入 · DRY-RUN" : "晚注入 · 正式主程序数据源覆盖");
+      const stageText = infoWaveMode
+        ? (state.transport.attached_to_start
+          ? ` · 已附着正式start链路 · relay ${state.transport.relay_running ? "在线" : "停止"}`
+          : "")
+        : (state.transport.late_override ? " · 已附着正式start链路" : "");
+      document.getElementById("serialState").textContent = `${state.transport.connected ? "已连接" : "未连接"} · ${state.transport.port} · ${state.transport.state}${stageText}`;
+      document.getElementById("remaining").textContent = state.active ? `${state.remaining_sec}s` : "—";
+      const total = Object.values(state.send_counts).reduce((a, value) => a + value, 0);
+      document.getElementById("totalSent").textContent = total;
+      document.getElementById("failedCount").textContent = state.failed_count;
+      document.getElementById("lastFrame").textContent = state.last_frame
+        ? `最近发送 ${state.last_frame.time} · ${state.last_frame.message} · ${state.last_frame.hex.slice(0, 48)}…`
+        : "尚未发送任何测试帧。";
+      document.getElementById("errorText").textContent = state.last_error || "";
+      document.getElementById("startButton").disabled = state.active;
+      document.getElementById("stopButton").disabled = !state.active;
+      document.getElementById("injectionMode").disabled = state.active;
+      document.getElementById("side").disabled = state.active || infoWaveMode;
+      renderPreview(state.preview);
+    }
+
+    async function refreshState() {
+      try {
+        const payload = await api("/api/state");
+        renderState(payload.state);
+      } catch (error) {
+        document.getElementById("errorText").textContent = error.message;
+      }
+    }
+
+    document.getElementById("applyButton").addEventListener("click", () =>
+      applyFields().catch(error => toast(error.message, true)));
+    document.getElementById("startButton").addEventListener("click", () =>
+      startInjection().catch(error => toast(error.message, true)));
+    document.getElementById("stopButton").addEventListener("click", () =>
+      stopInjection().catch(error => toast(error.message, true)));
+    document.getElementById("injectionMode").addEventListener("change", () =>
+      changeInjectionMode().catch(error => {
+        toast(error.message, true);
+        refreshState();
+      }));
+    document.querySelector("main").addEventListener("input", scheduleAutoApply);
+    document.querySelector("main").addEventListener("change", scheduleAutoApply);
+
+    buildCoordinateRows();
+    refreshState();
+    setInterval(refreshState, 500);
+  </script>
+</body>
+</html>

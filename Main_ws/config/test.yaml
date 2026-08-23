@@ -1,0 +1,35 @@
+# 相机与激光雷达同步回放配置。
+# 所有相对路径均以仓库根目录为基准。
+replay:
+  enabled: true
+  # 可以填写 rosbag 会话目录、rosbag_livox_lidar 目录或其中的 db3 文件。
+  rosbag_path: "recordings/replay_sample/rosbag_livox_lidar"
+  # 可以填写 sensor_record_* 会话目录或其 camera 子目录。
+  camera_session_dir: "recordings/replay_sample/camera"
+
+  # sensor_stamp 使用 camera_stamp；arrival_stamp 使用 wall_time_s。
+  time_basis: "sensor_stamp"
+  playback_rate: 1.0
+  # 相机与 rosbag 固定从首个共同有效时间戳同时开始播放。
+  # 保持真实时间流速。主程序跟不上时覆盖过期相机帧，不拖慢回放时钟。
+  overload_policy: "realtime_drop"
+  # 启动 rosbag 进程后留给 DDS 订阅关系的额外等待时间。
+  discovery_delay_sec: 0.5
+  # 每次回放的配置快照、日志和指标保存目录；留空则使用算法目录 logs/replay。
+  output_root: ""
+
+runtime:
+  params_config: "Main_ws/config/params.yaml"
+  device_config: "Main_ws/config/device.yaml"
+  # red/blue 可固定测试阵营；manual 保持裁判对象初值或由人工设置。
+  faction: "blue"
+  # 位置检测测试不启动串口、裁判 UDP 和波形通信线程。
+  disable_referee_io: true
+  # 同步回放默认启动 RViz；配置直接复用雷达端 lidar_pipeline.rviz_config。
+  launch_rviz: true
+  ros_ready_timeout_sec: 30.0
+  # 包含人工导入外参并点击“启动雷达站”的等待时间。
+  tracking_ready_timeout_sec: 600.0
+  shutdown_timeout_sec: 10.0
+  # 有效数据播放结束后保留 UI；关闭 UI 或在启动终端按 Ctrl+C 统一退出。
+  keep_ui_after_replay: true

@@ -1,0 +1,15 @@
+Lidar_ws/build/
+Lidar_ws/install/
+Lidar_ws/log/
+logs/
+recordings/
+recorder/
+Main_ws/logs/
+Main_ws/recorder/
+**/__pycache__/
+*.pyc
+*.bag
+*.db3
+*.mcap
+*.mp4
+*.mkv

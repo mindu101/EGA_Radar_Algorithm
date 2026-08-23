@@ -1,0 +1,36 @@
+camera:
+  acquisition_rate: 30.0
+  exposure_time: 10000
+  gain: 23.0
+  width: 4024
+  height: 3036
+  camera_matrix: [3299.5283562470486, 0., 2024.0633490912842,
+                  0.000000, 3300.8856957717744, 1609.1450726022888,
+                  0.000000, 0.000000, 1.000000]
+  dist_coeffs: [-0.058072516483303048, 0.09529462517050756, 0.00095029382183982921, -0.0011825558881310113, -0.052444936481243022]
+  display_fps: true
+  recording_workers_num: 1
+  recording_save_root_dir: recorder
+  # 全分辨率录像使用独立 NVENC 线程；队列只保存图像引用，不在采集线程编码。
+  recording_queue_size: 8
+  # P3 在当前 4024x3036@30Hz 配置下兼顾编码余量和画质。
+  recording_encoder_preset: p3
+  # H.264 VBR 目标/峰值码率，单位 Mbps。
+  recording_encoder_bitrate_mbps: 60
+  recording_encoder_max_bitrate_mbps: 100
+  # 停止录像时由 FFmpeg 无重编码封装为 MP4。
+  recording_ffmpeg_path: ffmpeg
+  
+
+
+lidar: 
+  extrinsics: [-0.0213372,-0.999763,0.00432506,-0.0265137,
+             -0.0189207,-0.00392146,-0.999813,-0.0349505,
+              0.999593,-0.0214151,-0.0188325,-0.0142249,
+              0.0,0.0,0.0,1.0]
+  max_frames: 100
+  max_points_per_frame: 10000
+
+
+
+

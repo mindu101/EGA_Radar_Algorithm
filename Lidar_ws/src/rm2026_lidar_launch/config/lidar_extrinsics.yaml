@@ -1,0 +1,15 @@
+lidar_tf:
+  parent_frame: "rm_frame"
+  child_frame: "livox_frame"
+  # translation: [x, y, z] from parent_frame -> child_frame (meters)
+  # rpy: [roll, pitch, yaw] from parent_frame -> child_frame (degrees)
+  # set invert: true if the stored transform is child_frame -> parent_frame
+  invert: false
+  # translation: [-1.0, 7.0, 3.5]
+  # translation: [0.0, -3.0, 3.0]
+  translation: [0.0, 6.5, 3.8]
+  rpy: [0.0, 10.0, 0.0]
+  # translation: [25.5, 9.5, 3.343]
+  # rpy: [0.0, 15.38, 176.0]
+# t=[25.787 8.311 3.343] rpy_deg=[0.05 15.38 170.64]
+# [25.691 8.300 3.343] rpy_deg=[0.07 15.40 171.44]

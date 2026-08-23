@@ -1,0 +1,36 @@
+*.npy
+*.stp
+# *.png
+*.ply
+*.PLY
+*.pcd
+*.pyc
+*.jpg
+__pycache__
+.vscode
+*.onnx
+*.pt
+*.ckpt
+*.pth
+*.mp4
+*.avi
+*.engine
+*.bin
+*.pkl
+*.ply
+*.zip
+/data
+/training_workspace
+
+# except for the following files
+!/interface/calib_tutorial.jpg
+!/docs/*.jpg
+!/docs/*.png
+!/tracker/warmup_image.jpg
+!/demo/*.jpg
+!/demo/*.png
+# 正式比赛使用的场地与模型资源需要随开源仓库发布。
+!/field/
+!/field/**
+!/weights/
+!/weights/**

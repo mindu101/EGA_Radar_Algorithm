@@ -1,0 +1,24 @@
+# 完整相机与激光雷达同步回放配置。
+# 所有相对路径均以开源项目根目录为基准。
+replay:
+  enabled: true
+  rosbag_path: "recordings/full_replay_20260808_153910/rosbag_livox_lidar"
+  camera_session_dir: "recordings/full_replay_20260808_153910/camera"
+
+  # 使用相机硬件时间戳，并从相机与点云的共同起点开始播放。
+  time_basis: "sensor_stamp"
+  playback_rate: 1.0
+  overload_policy: "realtime_drop"
+  discovery_delay_sec: 0.5
+  output_root: ""
+
+runtime:
+  params_config: "Main_ws/config/params.yaml"
+  device_config: "Main_ws/config/device.yaml"
+  faction: "blue"
+  disable_referee_io: true
+  launch_rviz: true
+  ros_ready_timeout_sec: 30.0
+  tracking_ready_timeout_sec: 600.0
+  shutdown_timeout_sec: 10.0
+  keep_ui_after_replay: true

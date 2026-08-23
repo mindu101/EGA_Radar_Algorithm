@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>rm2026_lidar_launch</name>
+  <version>0.0.1</version>
+  <description>Launch files for RM2026 lidar pipeline.</description>
+  <maintainer email="ega@example.com">ega</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>dynamic_cloud</exec_depend>
+  <exec_depend>cluster</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>livox_ros_driver2</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

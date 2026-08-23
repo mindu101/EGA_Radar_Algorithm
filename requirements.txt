@@ -1,0 +1,15 @@
+numpy
+opencv-python
+PyYAML
+PyQt5
+pydantic
+scipy
+scikit-learn
+filterpy
+open3d
+Pillow
+matplotlib
+pyserial
+torch
+torchvision
+ultralytics

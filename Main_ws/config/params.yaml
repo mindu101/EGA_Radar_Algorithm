@@ -1,0 +1,327 @@
+car_detector:
+  weights_path: "weights/car/best.engine" # Path to the car detection model weights
+  img_size: 1280
+  conf_thres: 0.3   
+  iou_thres: 0.5
+  max_det: 10
+  tracker_config_path: "config/botsort.yaml" # Path to the tracker configuration file
+  verbose: false
+  
+
+armor_detector:
+  class_names: ["B1", "B2", "B3", "B4", "B7", "R1", "R2", "R3", "R4", "R7", "G1", "G2", "G3", "G4", "G7"]
+  use_enhanced_detector: true
+  armor_detector_type: "two_step" # three_step, three_step
+
+  ##### Weights and size configuration for three step detector
+  # weights_path: "weights/armor_pfa_dynamic.engine"
+  # img_size: [640, 640]
+  
+  ##### Weights and size configuration for two step detector
+  weights_path: "weights/armor/armor_best.engine" 
+  img_size: 192
+  
+  ##### Weights and size configuration END
+
+  ##### Post processing configuration for yolo-based detector
+  conf_thres: 0.4
+  iou_thres: 0.4
+  max_det: 4
+  verbose: false
+  digit_model_type: "mobilenet"
+  digit_weights_path: "weights/MobileNetv2.2.pth"
+
+digit_detector:
+  digit_confidence_weight: 0.70
+  armor_confidence_weight: 0.30
+  min_digit_confidence: 0.30
+  min_combined_confidence: 0.55
+  colored_anchor_min_combined_confidence: 0.30
+  gray_anchor_min_combined_confidence: 0.40
+  ignored_digit_index: 5
+
+# 车辆检测（A 阶段）与装甲/跟踪融合（B 阶段）的两级流水线。
+# 默认值来源：prompt_pipeline.md 第 10.1 节；旧配置缺少此节点时回退串行模式。
+detection_pipeline:
+  enabled: true
+  camera_timeout_sec: 0.10
+  max_commit_age_sec: 0.20
+  worker_join_timeout_sec: 5.0
+
+# 高可靠相机投影—雷达配对残差的在线统计；仅保存在本次进程内。
+projection_lidar_statistics:
+  enabled: true
+  include_gray_camera_lidar: false
+  min_armor_confidence: 0.70
+  min_digit_confidence: 0.70
+  min_combined_confidence: 0.75
+  max_match_distance_m: 0.75
+  min_lidar_margin_m: 0.50
+  min_camera_margin_m: 0.50
+  # ratio=d1/d_second，越小越可靠；无竞争点时为 0。
+  max_lidar_ambiguity_ratio: 0.50
+  max_camera_ambiguity_ratio: 0.50
+  min_sample_interval_sec: 0.20
+
+ray_projection:
+  xy_maps_default_enabled: false
+  map_dtype: "float32"
+  generation_chunk_rows: 64  # 批量计算连续 64 行像素的射线
+  lookup_mode: "nearest"
+  invalid_value: "nan"
+  consistency_check:
+    enabled: true
+    sample_count: 10
+    max_error_m: 0.10
+
+tracker:
+  type: "CascadeMatchTracker"
+  point_guesser_config_path: "config/guess_pts.yaml"
+  cascade:
+    unknown_faction_fallback: "red"
+    random_seed: 2026
+
+    bot_history:
+      queue_size: 30
+      matching_window: 10
+      decay_tau: 0.5
+      association_ttl_frames: 30
+
+    colored_triplet_match:
+      max_ray_lidar_distance_m: 1.5
+      semantic_cost_weight: 2.0
+      ray_distance_cost_weight: 6.0
+
+    gray_match:
+      max_ray_lidar_distance_m: 1.5
+      semantic_cost_weight: 1.5
+      track_distance_cost_weight: 2.0
+      ray_distance_cost_weight: 3.0
+      unseen_track_cost: 0.5
+      side_cost_margin: 0.15
+      enemy_tie_bias: 0.05
+
+    history_lidar_match:
+      max_distance_m: 2.0
+      unmatched_cost: 100.0
+      invalid_edge_cost: 1000000.0
+
+    ally_fusion:
+      feedback_timeout_sec: 0.15
+      max_lidar_match_distance_m: 1.5
+      feedback_r_std_m: 0.0
+      age_r_std_per_sec: 0.0
+      update_kf_without_lidar: true
+
+    position_kalman:
+      default_dt_sec: 0.033333
+      min_dt_sec: 0.001
+      max_dt_sec: 0.20
+      process_q_std: 2.0
+      lidar_r_std_m: 0.20
+      initial_position_std_m: 0.25
+      initial_velocity_std_mps: 2.0
+      hard_reset_distance_m: 2.5
+
+    loss:
+      radar_guess_after_frames: 10
+      fixed_guess_after_frames: 30
+
+    guessing:
+      enemy_only: true
+      role_priority: ["hero", "standard_3", "standard_4", "sentry", "engineer"]
+
+visualization:
+  enabled: true                 # 是否启动只供 UI 使用的异步检测/追踪叠图线程
+  single_view: true             # 检测与追踪合并为一个 UI 视图
+  separate_detection_view: false # 禁止额外生成一张全分辨率检测图
+  update_hz: 30.0               # 后台叠图最高刷新频率，与定位处理帧率解耦
+  output_max_width: 1280        # 后台先缩小再画框，主线程不复制 4024x3036 大图
+  output_max_height: 960
+  box_thickness: 5              # 检测框/追踪框线宽
+  label_font_scale: 1.5         # 检测框/追踪框标签字体大小
+  label_font_thickness: 2       # 检测框/追踪框标签字体线宽
+  label_offset_y: 10            # 标签相对框左上角向上的偏移像素
+  panel_title_font_scale: 0.7   # 追踪状态面板标题字体大小
+  panel_text_font_scale: 1.0    # 追踪状态面板内容字体大小
+  panel_font_thickness: 1       # 追踪状态面板字体线宽
+
+lidar_fusion:
+  enabled: true
+  topic: "/livox/lidar_cluster"
+  queue_size: 10
+  max_snapshot_age_sec: 0.20
+  mirror_for_blue: true
+  field_length: 28.0
+  field_width: 15.0
+
+device: "cuda"
+transform:
+  # 以下是demo射线投影所用的相机参数
+  # 如果你要跑射线投影的demo,请务必修改以下参数为你的相机参数
+  # K: [[2500.0, 0.0, 1536.0], [0.0, 2500.0, 1024.0], [0.0, 0.0, 1.0]]
+  # dist_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
+
+  # K: [[2576.81837, 0.000000, 1515.37690],
+  #     [0.000000, 2571.61920, 1021.32044],
+  #     [0.000000, 0.000000, 1.000000]]
+  # dist_coeffs: [-0.08747204, 0.16229478, 0.0002525, 0.00149612, -0.05979831]
+  # 以下是ENTERPRIZE 2025赛季雷达站的实际相机参数
+  # 如果你要使用ENTERPRIZE开源的第视角视频,请务必修改以下参数为你的相机参数
+  # K: [[5033.780199, 0.000000, 2829.234535],
+  #     [0.000000, 5036.139955, 1929.489557],
+  #     [0.000000, 0.000000, 1.000000]]
+  # dist_coeffs: [-0.061883, 0.104794, 0.000434, -0.000036, 0.000000]
+
+  #EGA - CS060海康相机内参
+  # K: [[2576.81837, 0.000000, 1515.37690],
+  #     [0.000000, 2571.61920, 1021.32044],
+  #     [0.000000, 0.000000, 1.000000]]
+  # dist_coeffs: [-0.08747204, 0.16229478, 0.0002525, 0.00149612, -0.05979831]
+  #EGA - CS120海康相机内参
+  K: [[3299.5283562470486, 0., 2024.0633490912842],
+      [0.000000, 3300.8856957717744, 1609.1450726022888],
+      [0.000000, 0.000000, 1.000000]]
+  dist_coeffs: [-0.058072516483303048, 0.09529462517050756, 0.00095029382183982921, -0.0011825558881310113, -0.052444936481243022]
+
+  #EGA - T-DT相机内参(测试用)
+  # K: [[3617.422853, 0.000000, 2046.972383],
+  #     [0.000000, 3617.561167, 1515.242535],
+  #     [0.0     ,    0.0     ,    1.0     ]]
+  # dist_coeffs: [-0.064321, 0.114219, -0.000746, 0.000801, 0.000000]
+  # verbose: true
+
+#   Camera matrix : 
+
+# [[2.57681837e+03 0.00000000e+00 1.51537690e+03]
+#  [0.00000000e+00 2.57161920e+03 1.02132044e+03]
+#  [0.00000000e+00 0.00000000e+00 1.00000000e+00]]
+# dist : 
+
+# [[-0.08747204  0.16229478  0.0002525   0.00149612 -0.05979831]]
+
+
+  ## The below parameters are only used for mimic or demostration purposes
+  # R: [[0.99530147, -0.03039188, -0.09193101],
+  #     [-0.01339114, -0.98354371, 0.18017339],
+  #     [-0.09589397, -0.17809578, -0.97932948],]
+  # t: [[-0.68605672], [1.13893625], [15.32698638]]
+  # R: [[0.9799, 0.0020, -0.1995],
+  #     [0.0462, -0.9750, 0.2175],
+  #     [-0.1941, -0.2223, -0.9555],]
+  R: [[ 0.05794831, -0.99802970,  0.02405640],
+      [-0.27552369, -0.03914937, -0.96049676],
+      [ 0.95954609,  0.04903105, -0.27724947],]
+
+  t: [[5.96406267], [3.65504223], [1.39573549]]
+  demo_img_path: "demo/demo1.jpg"
+
+
+field:
+
+  mesh_path: "field/RMUC2026.ply"
+
+  keypoints: "transform/keypoints.txt"          ## 401赛场地关键点文件
+
+referee:
+  port: "/dev/referee"
+  # port: "/dev/pts/2"
+  baudrate: 115200            ## 串口波特率
+  use_info_wave_0a01_for_referee: false  # 开源融合定位默认不接入信息波坐标
+  info_wave_position_timeout_sec: 0.25  # 超过0.25秒没有新的0x0A01代次，0x0305立即回退视觉/激光对方坐标
+  enable_info_wave_robot_multicast: false  # 保留接口，默认关闭信息波机器人摘要转发
+
+debug:
+  camera_mode: "camera"                    # camera, image, ros
+  # camera_mode: "image"
+  camera_color_order: "rgb"                # rgb or bgr (input frame order)
+  ros_image_topic: "/camera_image"         # ROS image topic when camera_mode=ros
+  ros_image_queue_size: 5                  # QoS depth for ROS image subscription
+  inference_video: true                   # 是否启用视频推理
+  video_source: "demo/demo1.jpg"             # image 模式下的演示输入
+  streaming_video: true                  # 是否录制视频
+  timing_debug_enabled: true             # 是否启用跟踪定位耗时调试
+  timing_ema_alpha: 0.2                  # 耗时指数平滑系数
+  log_inference_fps: false               # 是否向终端逐帧打印主循环 FPS
+  performance_metrics:
+    enabled: true                        # 后台导出逐帧耗时、延迟和 GPU 指标
+    output_path: "logs/performance/runtime_metrics.jsonl"
+    flush_interval_sec: 1.0
+    gpu_sample_interval_sec: 0.5
+    gpu_device_index: 0
+    queue_size: 512
+  tf_debug:
+    enabled: true                        # 是否开启标定后相机位姿(tf + PoseStamped)发布
+    root_frame: "rm_frame"                # 全局根坐标系（固定 tf 的父坐标系）
+    parent_frame: "field"                 # 场地坐标系 frame_id
+    publish_rm_to_field: true             # 是否发布 rm_frame->field 固定旋转 tf
+    rm_to_field_tf:
+      translation_xyz: [0.0, 0.0, 0.0]    # field->rm 平移（单位: 米，坐标在 rm_frame 下）
+      rotation_mode: "rpy"                # 姿态表示: rpy 或 matrix（均表示 field->rm）
+      rotation_rpy_deg: [0.0, 0.0, 0.0]   # roll/pitch/yaw（度），R=Rz(yaw)*Ry(pitch)*Rx(roll)
+      rotation_matrix_row_major: [0.0, 0.0, -1.0,
+                                  -1.0, 0.0, 0.0,
+                                  0.0, 1.0, 0.0] # 3x3 旋转矩阵，行优先，表示 field->rm
+    # 支持 ROS 动态调参：可运行时修改 field->rm_frame 的 tf
+    # 推荐（动态重配置风格，单轴调整）：
+    # ros2 param set /rm2026_camera_tf_debug_pub rm_to_field.tx 0.10
+    # ros2 param set /rm2026_camera_tf_debug_pub rm_to_field.yaw_deg 95.0
+    # ros2 param set /rm2026_camera_tf_debug_pub rm_to_field.rotation_mode matrix
+    # ros2 param set /rm2026_camera_tf_debug_pub rm_to_field.rotation_matrix_row_major "[1,0,0,0,0,-1,0,1,0]"
+    child_frame: "camera"                 # 相机坐标系 child_frame_id
+    pose_topic: "/debug/camera_pose"      # 同步发布的相机位姿话题
+    publish_target_tf: true               # 是否发布 field->target_x 目标定位 tf
+    publish_target_pose: true             # 是否发布目标 PoseArray
+    target_pose_topic: "/debug/target_poses"  # 目标 PoseArray 话题
+    target_child_prefix: "target_"        # 目标 tf 子坐标系前缀，实际为 target_<class_id>
+    publish_rate_hz: 2.0                  # 发布频率（Hz）
+
+udp:
+  XYZ:
+    remote_host: "127.0.0.1"
+    remote_port: 5005
+    send_buffer_bytes: 4096
+  Msg:
+    remote_host: "127.0.0.1"
+    remote_port: 5006
+    send_buffer_bytes: 4096
+    recv_host: "127.0.0.1"
+    recv_port: 5007
+    recv_buffer_bytes: 4096
+
+outpost_light:
+  color: "blue"
+  ########################################################################
+  reverse: false
+  ########################################################################
+  alive_ratio_threshold: 0.03
+  hsv_thresholds:
+    blue:
+      h_min: 95
+      h_max: 130
+      s_min: 80
+      s_max: 255
+      v_min: 80
+      v_max: 255
+    red:
+      h_min: 170
+      h_max: 10
+      s_min: 80
+      s_max: 255
+      v_min: 80
+      v_max: 255
+    green:
+      h_min: 35
+      h_max: 85
+      s_min: 60
+      s_max: 255
+      v_min: 60
+      v_max: 255
+    white:
+      h_min: 0
+      h_max: 179
+      s_min: 0
+      s_max: 70
+      v_min: 160
+      v_max: 255
+    ########################################################################

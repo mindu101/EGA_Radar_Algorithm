@@ -1,0 +1,20 @@
+class RefereeTxPolicy:
+    """裁判串口正式发送频率；主程序和测试注入器必须共用这一份定义。"""
+
+    RADAR2CLIENT_TX_HZ = 5.0
+    # 四种 0x0301 子包各自以 7 Hz 轮询发送，总槽位频率为 28 Hz。
+    INTERACTIVE_ROUND_HZ = 7.0
+    INTERACTIVE_MESSAGE_COUNT = 4
+    INTERACTIVE_ROUND_GAP_SEC = 1.0 / (
+        INTERACTIVE_ROUND_HZ * INTERACTIVE_MESSAGE_COUNT
+    )
+    # 裁判系统单类交互数据检测上限为 30 Hz，留出 1 ms 安全余量。
+    INTERACTIVE_MIN_GAP_SEC = 0.034
+    INFO_WAVE_ENGINEER_TX_HZ = INTERACTIVE_ROUND_HZ
+    INFO_WAVE_SENTRY_TX_HZ = INTERACTIVE_ROUND_HZ
+    # 可选多机器人摘要开启后，28个槽按5/5/5/5/8分配：
+    # 决策、空中、工程、哨兵、摘要。0x0121 的5个槽无实际决策包时
+    # 转给摘要，因此摘要合计为8~13 Hz。
+    OPTIONAL_MULTICAST_SLOT_WEIGHTS = (5, 5, 5, 5, 8)
+    OPTIONAL_MULTICAST_TOTAL_TX_HZ = sum(OPTIONAL_MULTICAST_SLOT_WEIGHTS)
+    OPTIONAL_MULTICAST_SLOT_GAP_SEC = 1.0 / OPTIONAL_MULTICAST_TOTAL_TX_HZ

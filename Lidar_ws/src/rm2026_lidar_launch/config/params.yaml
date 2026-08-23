@@ -1,0 +1,241 @@
+common:
+  # 雷达外参配置文件路径。
+  # 影响：决定 localization 初始位姿中的平移/旋转基准，路径错误或外参不准会导致地图配准偏移。
+  # 说明：支持绝对路径；相对路径按 rm2026_lidar_launch 的 share 目录解析。
+  extrinsics_file: config/lidar_extrinsics.yaml
+  # 静态地图点云配置（localization 和 dynamic_cloud 共用）。
+  map:
+    # 地图文件所属 ROS 包名。
+    # 影响：决定从哪个包的 share 目录查找地图；改错会直接导致地图加载失败。
+    package: dynamic_cloud
+    # 地图点云相对路径。
+    # 影响：决定全局配准参考地图；地图更新后会直接改变定位基准和动态点提取结果。
+    relative_path: config/RMUC2026.pcd
+
+
+lidar_pipeline:
+  # localization 启动后，延时加载 dynamic_cloud/cluster 的等待时间（秒）。
+  # 影响：值过小可能在定位未稳定时启动后级，造成早期误检；值过大则增加系统可用延迟。
+  startup_delay_sec: 2.0
+  # 是否在管线启动时同时拉起 RViz。
+  # 影响：true 方便直接观察点云和定位结果；false 适合无界面或纯后台运行。
+  launch_rviz: true
+  # 沿用原 1.sh 启动时 livox_ros_driver2 使用的 ROS2 点云显示配置。
+  # 配置快照随开源项目提供，避免外部驱动版本变化导致显示布局不一致。
+  rviz_config: config/display_point_cloud_ROS2.rviz
+  # Livox HAP 驱动 launch 文件路径。
+  # 影响：默认拉起 livox_ros_driver2 的 HAP 点云驱动；如果驱动包升级了路径，可在这里调整。
+  livox_launch_file: launch_ROS2/pcd_HAP_launch.py
+  localization:
+    # localization 滑动累积的点云帧数（代码按帧计数，并不是秒）。
+    # 影响：仅在 enable_background_filter=false 时生效；增大可提升配准稳定性，但计算量也会增大。
+    accumulate_time: 5
+    # 配准后端。仅允许gicp、ndt或gicp_ndt；其他字符串会让localization报错并拒绝启动。
+    # ndt：每次配准执行coarse NDT→fine NDT。
+    # gicp_ndt：每次配准执行GICP→coarse NDT→fine NDT。
+    backend: "gicp_ndt"
+    # 是否启用地图配准。
+    # true：按backend选择GICP、两阶段NDT或GICP→两阶段NDT；false：直接使用外参参数发布TF。
+    enable_registration: true
+    # 实验模式：达到稳定帧数后仍持续使用后续更新的old点云执行配准，不锁定停止。
+    continuous_registration: false
+    # 实验模式：即使配准器报告未收敛，只要输出矩阵数值有限，仍用于更新当前位姿。
+    # 跳变限制和平滑仍然生效；正式比赛建议改为false。
+    accept_unconverged_result: true
+    # 两次配准任务提交的最小时间间隔（秒）；old背景仍逐帧更新。
+    # worker忙时只保留一个pending任务，后续帧持续覆盖它，因此下一次执行的是最新old。
+    # 当前0.5表示最多2Hz创建新pending，设为0表示只受worker处理速度限制。
+    registration_interval_sec: 0.5
+    # 节点启动后最多执行的registration次数；达到上限后不论fitness是否达标都停止配准。
+    # gicp_ndt模式下，一次完整的GICP→coarse NDT→fine NDT只计为一次registration。
+    max_registration: 1
+    # 是否启用用于配准source的持久化最远点背景过滤。
+    # true：始终按角度栅格逐帧更新old，近处动态遮挡不会覆盖old；
+    # 配准锁定、达到max_registration或NDT达到max_iteration均不停止old更新。
+    # false：使用原有滑动累积逻辑，该old同样不受配准停止状态影响。
+    # 代码默认关闭，只有本参数显式设为true时才启用。
+    enable_background_filter: true
+    # 持久背景的方位角/俯仰角栅格边长（度）。
+    background_angular_bin_deg: 0.1
+    # 新点比old远不超过该距离时，视为同一背景表面的测量波动并直接保留更远点（米）。
+    background_range_tolerance: 0.10
+    # 新点显著远于old时，需要多少次距离一致的观测才允许替换old，避免一次远距离噪点污染背景。
+    background_candidate_confirm_count: 1
+    # 多次“更远候选”之间允许的距离差（米）。
+    background_candidate_tolerance: 0.15
+    # 是否根据筛选后当前帧与old的内点率自动重启一轮配准。
+    # false仅关闭自动重启；终端手动reset始终可用。
+    # 配准停止后old仍逐帧更新，自动内点率检查也继续运行。
+    # 手动命令：ros2 service call /localization/reset_registration std_srvs/srv/Trigger "{}"
+    registration_reset_auto: true
+    # 当前帧点到old最近点的距离不超过该值时记为内点（米）。
+    registration_reset_inlier_distance: 0.10
+    # 当前帧内点率低于该值时，判定雷达位置发生移动并用当前帧重置old。
+    registration_reset_inlier_ratio_threshold: 0.90
+    # 当前帧和old至少各有这么多个ROI内点时，才允许执行移动判定。
+    registration_reset_min_points: 200
+    # old初始化/重置后至少经过这么多帧，才开始执行移动判定，避免背景尚未建立时误重置。
+    registration_reset_min_age_frames: 10
+    # 移动重置后冻结old更新的帧数；冻结期间仍可用重置后的old做配准。
+    registration_reset_freeze_frames: 5
+    # 是否使用初始位姿猜测（由外参与先验提供）进行配准初始化。
+    # 影响：开启通常能加快收敛并提高成功率；关闭在初始偏差较大场景可能更慢或更易失败。
+    use_initial_guess: true
+    # 配准质量阈值（fitness，越小代表匹配越好）。
+    # 影响：阈值设小会更严格、可降低错误匹配，但可能频繁判失败；设大更宽松，成功率高但漂移风险上升。
+    fitness_threshold: 0.01
+    # 两种后端共用的变换收敛阈值。
+    # 影响：越小停止条件越严格，通常精度更高但耗时更长。
+    transformation_epsilon: 0.001
+    # 连续多少帧 fitness 达标后才锁定最终位姿。
+    # 影响：值大可抑制偶发好帧导致的误锁定；值小可更快进入锁定状态。
+    stable_required_count: 30
+    # 相邻两次配准允许的最大平移跳变（米）。
+    # 影响：值小可抑制抖动尖峰；值过小会误拒绝正常更新。
+    max_translation_jump: 10.0
+    # 相邻两次配准允许的最大旋转跳变（度）。
+    # 影响：值小可抑制姿态抖动；值过小会导致更新过于保守。
+    max_rotation_jump_deg: 20.0
+    # 位姿平滑系数（0~1），越大越跟随新结果，越小越平滑。
+    # 影响：值大响应快但更抖；值小更稳但有滞后。
+    transform_smooth_alpha: 0.35
+    # GICP独有参数；即使当前backend=ndt也保留，便于直接切换和对比。
+    gicp:
+      # 单次GICP阶段的最大外层迭代次数。
+      max_iteration: 10
+      # 最大对应点距离（米）；过大会引入错误对应，过小会减少有效匹配。
+      max_correspondence_distance: 2.0
+      # 连续两次欧式fitness变化的收敛阈值。
+      euclidean_fitness_epsilon: 0.0001
+      # GICP内部旋转收敛阈值。
+      rotation_epsilon: 0.002
+      # 每个点用于协方差估计的最近邻数量。
+      correspondence_randomness: 20
+      # 每轮外层配准中，内部优化器允许的最大迭代次数。
+      maximum_optimizer_iterations: 20
+    # NDT采用单次registration内的coarse→fine两阶段流程。
+    ndt:
+      # 现有NDT参数表示coarse阶段；原80次迭代预算中的60次分配给coarse。
+      max_iteration: 30
+      # coarse高斯体素边长（米）。
+      resolution: 0.5
+      # coarse Newton线搜索最大步长。
+      step_size: 0.1
+      # fine阶段使用coarse有限结果作为初值，完成剩余20次精细优化。
+      fine:
+        max_iteration: 30
+        resolution: 0.2
+        step_size: 0.05
+      # 离群点概率比例，必须在(0,1)内；增大可降低异常点对似然的影响。
+      # coarse和fine阶段共用以下参数。
+      outlier_ratio: 0.35
+      # OpenMP线程数，必须为正整数；不宜明显超过CPU可用核心数。
+      num_threads: 4
+      # 邻域搜索模式：kdtree/direct26/direct7/direct1。
+      # kdtree最完整但慢；direct26更稳；direct7常用于实时定位；direct1最快但收敛域最小。
+      neighborhood_search: "direct7"
+    # 配准source的体素下采样尺寸（米）；单帧ROI筛选后和old角度栅格合并后各执行一次。
+    # 两次使用同一尺寸；值大可降低点云密度和配准计算量，但会减少现场点云细节。
+    source_voxel_leaf_size: 0.1
+    # 配准target场地PCD地图的体素下采样尺寸（米）。
+    # 影响：地图只在首次配准前下采样一次；值大可显著减少目标点和对应搜索开销。
+    target_voxel_leaf_size: 0.1
+  dynamic_cloud:
+    # dynamic_cloud 体素下采样尺寸（米）。
+    # 影响：值大可抑制噪声并降算力，但小目标可能被平滑掉；值小能保留细节，但噪声与计算压力增加。
+    voxel_leaf_size: 0.1
+    # 飞镖/飞行器等非地面主场地点云的累积帧数；同时作为区域参数缺失时的兼容回退值。
+    # 影响：不再直接决定地面机器人点云累积，地面三个区域分别使用下面的参数。
+    accumulate_time: 5
+    # 雷达所在近端区域的动态点云累积帧数。
+    # 影响：近端点密度较高，较小值可缩短运动残影和聚类中心滞后。
+    near_accumulate_time: 3
+    # 中间区域的动态点云累积帧数。
+    # 影响：在近端响应速度和远端点云密度之间折中。
+    middle_accumulate_time: 6
+    # 远端区域的动态点云累积帧数。
+    # 影响：较大值可补充远端稀疏点，但过大会加重高速目标拖影。
+    far_accumulate_time: 6
+    # 三个区域分界使用的 rm_frame 坐标轴，仅支持 x 或 y。
+    region_split_axis: "x"
+    # 近端与中间区域的分界坐标（米）。
+    near_middle_split_position: 16.0
+    # 中间与远端区域的分界坐标（米）；保留原远端分界16.0m。
+    middle_far_split_position: 22.0
+    # true 表示坐标较大的一端为近端；当前雷达位于 x 较小端，因此为 false。
+    near_region_positive: false
+    # 三个区域与静态地图最近邻距离的平方阈值，单位 m^2。
+    # 影响：点到地图最近邻平方距离大于所在区域阈值时认为是动态点。
+    near_map_distance_threshold: 0.05
+    middle_map_distance_threshold: 0.04
+    far_map_distance_threshold: 0.03
+    # 动态点提取线程数。
+    # 影响：值大可提升吞吐，但过大时线程调度开销会上升。
+    dynamic_thread_num: 12
+    # 飞镖区域触发所需点数阈值。
+    dart_min_points: 5
+    # 飞行器各告警区域触发所需点数阈值。
+    fly_min_points: 40
+    # 以下所有区域格式均为：[x_min, x_max, y_min, y_max, z_min, z_max]，单位 m。
+    # 主场地点云区域。区域内点进入地图扣除；区域外仅保留飞镖/飞行器检测相关点。
+    main_roi: [0.3, 27.4, 0.3, 14.7 , 0.1, 1.3]
+    # 飞镖固定剔除区域，区域内点直接丢弃，不进入动态点和告警检测。
+    dart_exclude_roi: [26.0, 28.0, 3.0, 5.5, 0.0, 2.5]
+    # 基地区域固定剔除区域，区域内点直接丢弃，不进入动态点和告警检测。
+    home_exclude_roi: [26.5, 28.0, 13.0, 15.0, 0.0, 3.0]
+    # 地图固定剔除区域，来自 RMUC2026_picked_points.pp 四点拟合的斜矩形，格式为 [center_x, center_y, yaw_deg, length, width, z_min, z_max]。
+    map_exclude_rotated_roi: [14.0, 7.5, 45.3, 3.0, 1.7, -1000.0, 1000.0]
+    # 可变数量的地图轴对齐剔除区域；每项必须严格包含6个值：
+    # [x_min, x_max, y_min, y_max, z_min, z_max]，可使用-.inf和.inf表示无界。
+    map_exclude_axis_aligned_rois:
+      - [24.8, 26.3, 7.0, 8.0, -.inf, .inf]
+      - [24.9, .inf, 0.0, 3.4, -.inf, .inf]
+      - [22.8, 23.8, 4.70, 5.05, -.inf, .inf]
+      - [21.1, 21.9, 10.7, 11.3, -.inf, .inf]
+    # main_roi: [0.0, 27.4, -10.0, 14.7 , 0.1, 1.0] # TOBE CHANGED
+    # 飞镖检测区域。
+    dart_roi: [27.2226, 27.4111, 3.925, 4.525, 1.7132, 2.4722]
+    # dart_roi: [-100.0, -90.0, -100.0, -90.0, -3.0, -2.0] # TOBE CHANGED
+    # 飞行器安全区。
+    fly_safe_roi: [25.225, 27.5, 0.2, 2.2, 1.7, 3.0]
+    # 飞行器预警区。
+    fly_warn_roi: [19.83, 25.3, 0.2, 4.556, 1.7, 3.0]
+    # 飞行器报警区。
+    fly_alarm_roi: [13.0, 20.5, 0.2, 4.556, 1.7, 3.0]
+    # 飞行器总检测区域，用于发布 /livox/lidar_fly 和进入其他点云缓存。
+    fly_detect_roi: [13.0, 25.3, 0.2, 4.556, 1.7, 3.0]
+    # fly_detect_roi: [0.0, 20.0, -10.0, 0, 2.0, 5.0] # TOBE CHANGED
+  cluster:
+    # 欧式聚类参数按dynamic_cloud的near/middle/far分界分别生效。
+    # tolerance单位为米；min/max表示一个有效聚类允许的点数范围。
+    near_cluster_tolerance: 0.25
+    near_min_cluster_size: 5
+    near_max_cluster_size: 5000
+    middle_cluster_tolerance: 0.25
+    middle_min_cluster_size: 3
+    middle_max_cluster_size: 5000
+    far_cluster_tolerance: 0.25
+    far_min_cluster_size: 3
+    far_max_cluster_size: 5000
+
+rosbag_player:
+  # 独立 rosbag 播放 launch 的默认包路径。
+  # 影响：决定回放数据源；可被 launch 参数 rosbag_file 覆盖。
+  # rosbag_file: rosbag/example.db3
+rosbag_lidar_fusion_test:
+  # 融合测试 launch 的默认包路径。
+  # 影响：决定测试输入数据；可被 launch 参数 rosbag_file 覆盖。
+  rosbag_file: rosbag
+  # 标准 ros2 bag play 播放倍率，1.0 表示按录制速度播放。
+  playback_rate: 1.0
+  # 播放前等待节点和 DDS 订阅关系建立的时间（秒）。
+  playback_delay_sec: 1.0
+  # 播放结束后是否从头循环播放。
+  loop_playback: false
+  # 是否启动 RViz。
+  # 影响：true 便于可视化调试；false 可减少图形资源占用，适合无界面或纯计算环境。
+  launch_rviz: true
+  # 手动启动测试 launch 时同样采用原 1.sh 的 RViz 显示配置。
+  rviz_config: config/display_point_cloud_ROS2.rviz
+  # localization、dynamic_cloud 及后级启动延时统一读取 lidar_pipeline，
+  # 保证 rosbag 测试与正式启动使用完全相同的算法配置。
