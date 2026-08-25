@@ -19,7 +19,7 @@
 
 ## 国赛设备
 
-- 相机：海康 MV-CS120-10UC
+- 相机：海康 MV-CS120-10UC + 6mm广角镜头
 - 激光雷达：Livox HAP
 - 运算平台：RTX 5090 + Intel Core Ultra 9 275HX 笔记本
 
