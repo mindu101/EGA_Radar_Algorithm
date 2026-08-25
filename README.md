@@ -107,7 +107,7 @@ CONDA_ENV=cud128 LAUNCH_RVIZ=false LIVOX_WS_DIR=/path/to/livox_ws ./start_fusion
 
 - `replay_sample`：约 7 秒，用于快速检查环境和启动流程。
 - `full_replay_20260808_153910`：约 9.9 分钟有效同步数据，用于完整复现融合定位流程。
-
+下载地址：https://pan.quark.cn/s/e95318734e1a  提取码：Z2s1
 下载后将数据目录放到 `recordings/` 下，最终应出现：
 
 ```text
