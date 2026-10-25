@@ -939,7 +939,7 @@ class MainEventLoop:
             "  06.6 [计时/原子: GPU→CPU+CPU] 装甲结果批量回传与坐标组装",
             "07 [模块: CPU] 数字识别输入准备",
             "  07.1 [计时/原子: CPU] 装甲框裁边与装甲ROI切片",
-            "  07.2 [计时/原子: CPU] NumPy装甲ROI转PIL RGB",
+            "  07.2 [计时/原子: CPU] 装甲ROI直传数字分类器（numpy直传）",
             "08 [模块: CPU+GPU] 数字神经网络识别",
             "  08.1 [计时: CPU] 每张数字图像NormalTransform",
             "    08.1.1 [父级计时/原子: CPU] 黑边填充为正方形",
@@ -1110,6 +1110,11 @@ class MainEventLoop:
     ):
         """汇总当前帧各层计时；实际磁盘写入由后台线程完成。"""
         output_age_ms = self._get_frame_age_ms(frame_stamp, time.time())
+        latest_completed = self.get_latest_pipeline_output()
+        detector_stages_ms = {}
+        if latest_completed is not None:
+            detector_stages_ms.update(latest_completed.stage_a_timings_ms)
+            detector_stages_ms.update(latest_completed.stage_b_timings_ms)
         self.metrics_exporter.submit(
             {
                 "frame_id": int(frame_id),
@@ -1136,12 +1141,7 @@ class MainEventLoop:
                     "tracker": dict(
                         getattr(self.tracker, "track_frame_timing_ms", {})
                     ),
-                    "detector": dict(
-                        {
-                            **dict(completed.stage_a_timings_ms),
-                            **dict(completed.stage_b_timings_ms),
-                        }
-                    ),
+                    "detector": dict(detector_stages_ms),
                     "visualization": (
                         self.visualization_worker.get_frame_timing_ms()
                         if self.visualization_worker is not None

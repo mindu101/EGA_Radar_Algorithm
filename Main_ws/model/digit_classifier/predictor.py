@@ -6,10 +6,53 @@ from model.digit_classifier.model import (
 )
 from torch.nn import functional as F
 from model.digit_classifier.transform import NormalTransform
+import numpy as np
+import cv2
 import torch
 import time
 
 # import torch_tensorrt
+
+# 与 NormalTransform（PIL 路径）等价的 ImageNet 归一化常量
+_IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32).reshape(1, 1, 3)
+_IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32).reshape(1, 1, 3)
+
+
+def _pad_to_square(image):
+    """与 transform.PadToSquare(fill=0) 等价的 numpy 实现：居中补零。"""
+    h, w = image.shape[:2]
+    side = max(h, w)
+    canvas = np.zeros((side, side, 3), dtype=np.uint8)
+    top = (side - h) // 2
+    left = (side - w) // 2
+    canvas[top : top + h, left : left + w] = image
+    return canvas
+
+
+def preprocess_numpy_batch(images, input_size=64):
+    """numpy(HWC uint8 RGB) 列表 -> float32 NCHW 已归一化批量数组。
+
+    与 PIL 路径（PadToSquare + Resize + ToTensor + Normalize）数值等价：
+    缩小用 INTER_AREA（对应 PIL BILINEAR 的抗锯齿下采样），放大用 INTER_LINEAR。
+    """
+    prepared = np.empty((len(images), 3, input_size, input_size), dtype=np.float32)
+    for i, image in enumerate(images):
+        arr = np.ascontiguousarray(image)
+        if arr.ndim == 2:
+            arr = np.stack([arr] * 3, axis=-1)
+        elif arr.shape[2] == 4:
+            arr = arr[:, :, :3]
+        padded = _pad_to_square(arr)
+        h, w = padded.shape[:2]
+        interp = (
+            cv2.INTER_AREA
+            if (input_size < h and input_size < w)
+            else cv2.INTER_LINEAR
+        )
+        resized = cv2.resize(padded, (input_size, input_size), interpolation=interp)
+        normalized = (resized.astype(np.float32) / 255.0 - _IMAGENET_MEAN) / _IMAGENET_STD
+        prepared[i] = normalized.transpose(2, 0, 1)
+    return prepared
 
 
 class DigitClassifier:
@@ -93,14 +136,23 @@ class DigitClassifier:
 
         # Apply transformations to each image
         started = time.perf_counter()
-        transformed_images = [self.transform(image) for image in images]
-        self.last_timing_stats[
-            "08.1 数字图像Pad缩放张量化归一化（模块08.1总时间）"
-        ] = time.perf_counter() - started
-
-        # Stack images into a single tensor
-        started = time.perf_counter()
-        image_tensor = torch.stack(transformed_images)
+        if images and isinstance(images[0], np.ndarray):
+            # B 阶段热路径：numpy(HWC RGB) 批量预处理，替代逐张 PIL 的四次拷贝/变换
+            batch_array = preprocess_numpy_batch(
+                images, self.transform.input_size
+            )
+            self.last_timing_stats[
+                "08.1 数字图像Pad缩放张量化归一化（模块08.1总时间）"
+            ] = time.perf_counter() - started
+            started = time.perf_counter()
+            image_tensor = torch.from_numpy(batch_array)
+        else:
+            transformed_images = [self.transform(image) for image in images]
+            self.last_timing_stats[
+                "08.1 数字图像Pad缩放张量化归一化（模块08.1总时间）"
+            ] = time.perf_counter() - started
+            started = time.perf_counter()
+            image_tensor = torch.stack(transformed_images)
         self.last_timing_stats[
             "08.2 数字批量张量堆叠（原子模块08.2）"
         ] = time.perf_counter() - started

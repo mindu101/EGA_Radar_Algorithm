@@ -227,11 +227,11 @@ class TwoStepArmorDetectorClassifier:
         enhanced_detections_list = [[] for _ in imgs]  # 初始化结果列表
         if all_armor_crops:
             # 批量分类所有装甲板
+            # numpy HWC RGB 直传：DigitClassifier 检测到 numpy 输入时走
+            # cv2 批量预处理（preprocess_numpy_batch），省掉逐张 PIL 四次拷贝
             started = time.perf_counter()
-            digit_inputs = [
-                PIL.Image.fromarray(img).convert("RGB") for img in all_armor_crops
-            ]
-            self.last_timing_stats["07.2 NumPy装甲ROI转PIL RGB（原子模块07.2）"] = (
+            digit_inputs = all_armor_crops
+            self.last_timing_stats["07.2 装甲ROI直传数字分类器（原子模块07.2）"] = (
                 time.perf_counter() - started
             )
             started = time.perf_counter()
@@ -270,7 +270,7 @@ class TwoStepArmorDetectorClassifier:
                 time.perf_counter() - started
             )
         else:
-            self.last_timing_stats["07.2 NumPy装甲ROI转PIL RGB（原子模块07.2）"] = 0.0
+            self.last_timing_stats["07.2 装甲ROI直传数字分类器（原子模块07.2）"] = 0.0
             self.last_timing_stats["数字神经网络推理与结果回传"] = 0.0
             self.last_timing_stats["09.1 装甲颜色数字合成与结果分配（原子模块09.1）"] = 0.0
         self.last_timing_stats["装甲与数字识别阶段总时间"] = (
