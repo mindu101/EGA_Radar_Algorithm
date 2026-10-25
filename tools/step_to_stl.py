@@ -55,17 +55,21 @@ def main():
         print("网格化中……")
         gmsh.model.mesh.generate(2)  # 只要表面网格
 
-        n_tri = 0
-        for dim, tag in gmsh.model.getEntities(2):
-            _, types, _, nodes = gmsh.model.mesh.getElements(dim, tag)
-            for t in types:
-                if t == 2:  # 三角形
-                    n_tri += len(nodes) // 3
-        print(f"三角形总数: {n_tri:,}")
-
+        # 先写出产物，再做统计（统计失败不影响 STL）
         gmsh.option.setNumber("Mesh.Binary", 1)
         gmsh.write(args.stl_path)
         print(f"二进制 STL 已写: {args.stl_path}")
+
+        try:
+            n_tri = 0
+            for dim, tag in gmsh.model.getEntities(2):
+                types, _, node_tags = gmsh.model.mesh.getElements(dim, tag)
+                for t, nt in zip(types, node_tags):
+                    if t == 2:  # 三角形
+                        n_tri += len(nt) // 3
+            print(f"三角形总数: {n_tri:,}")
+        except Exception as ex:  # noqa: BLE001
+            print(f"三角形统计失败（不影响产物）: {ex}")
     finally:
         gmsh.finalize()
 
