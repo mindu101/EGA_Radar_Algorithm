@@ -101,6 +101,14 @@ export LIVOX_WS_DIR=/path/to/livox_ws
 CONDA_ENV=cud128 LAUNCH_RVIZ=false LIVOX_WS_DIR=/path/to/livox_ws ./start_fusion.sh
 ```
 
+本机用 MV-CA016-10UC 和 Mid360 做采集预览：
+
+```bash
+./start_mid360_ca016.sh
+```
+
+该入口使用 CA016 的 1440×1080 配置并跳过裁判串口；会复用已发布 `/livox/lidar` 的 Mid360，否则自行启动雷达及 RViz。当前相机、雷达和场地尚未完成配套标定，预览不启用场地聚类与空间融合。实测及标定要求见 `learning/12-本机部署记录.md`。
+
 ## 回放验证
 
 项目配套提供精简样例和完整录制两组数据，不纳入 Git 源码仓库：

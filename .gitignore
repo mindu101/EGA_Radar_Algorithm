@@ -13,3 +13,4 @@ Main_ws/recorder/
 *.mcap
 *.mp4
 *.mkv
+Main_ws/weights/local/

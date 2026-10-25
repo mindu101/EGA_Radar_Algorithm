@@ -505,8 +505,9 @@ class SimpleHikCamera(Node):
             elif self.status == HikState.RECONNECTING:
                 print("Reconnecting to camera...")
                 reconnect_count += 1
+                sdk_ready = self._init_sdk() == 0
                 reconnected = (
-                    self._init_sdk() == 0
+                    sdk_ready
                     and self._init_device() == 0
                     and self._configure_basic() == 0
                     and self.cam.MV_CC_StartGrabbing() == 0
@@ -518,6 +519,10 @@ class SimpleHikCamera(Node):
                     self.status = HikState.WORKING
                     time.sleep(1)
                 else:
+                    # Release a partially opened handle before the next attempt.
+                    # Otherwise an invalid setting leaves the USB camera busy.
+                    if sdk_ready:
+                        self._close_device()
                     # 相机短暂掉线时持续尝试恢复，不在线程内部调用 close()，
                     # 避免 streaming_thread 自己 join 自己并永久退出。
                     if reconnect_count == 1 or reconnect_count % 5 == 0:

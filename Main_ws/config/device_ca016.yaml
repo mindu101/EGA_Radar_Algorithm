@@ -1,0 +1,17 @@
+# MV-CA016-10UC on this machine: verified live at 1440x1080.
+# This file contains acquisition settings only. Intrinsics and camera pose
+# must be calibrated for this lens and mounting before spatial fusion.
+camera:
+  acquisition_rate: 25.0
+  exposure_time: 40000
+  gain: 23.0
+  width: 1440
+  height: 1080
+  display_fps: true
+  recording_workers_num: 1
+  recording_save_root_dir: recorder
+  recording_queue_size: 8
+  recording_encoder_preset: p3
+  recording_encoder_bitrate_mbps: 30
+  recording_encoder_max_bitrate_mbps: 50
+  recording_ffmpeg_path: ffmpeg

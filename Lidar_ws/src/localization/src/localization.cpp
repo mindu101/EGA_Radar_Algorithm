@@ -1032,7 +1032,7 @@ private:
         ndt->setTransformationEpsilon(transformation_epsilon_);
         ndt->setResolution(static_cast<float>(resolution));
         ndt->setStepSize(step_size);
-        ndt->setOutlierRatio(ndt_outlier_ratio_);
+        ndt->setOulierRatio(ndt_outlier_ratio_);
         ndt->setNumThreads(ndt_num_threads_);
         if (ndt_neighborhood_search_ == "kdtree") {
             ndt->setNeighborhoodSearchMethod(pclomp::KDTREE);

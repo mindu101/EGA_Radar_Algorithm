@@ -42,6 +42,11 @@ class PredictorWithTracker:
         self._timing_hooks_installed = False
         self._last_tracker_callback_s = 0.0
         self._last_botsort_update_s = 0.0
+        # Recent Ultralytics versions refresh tracking callbacks in every track().
+        # Install timing wrappers after that refresh and tracker initialization.
+        self.model.add_callback(
+            "on_predict_batch_start", lambda _predictor: self._install_tracker_timing_hooks()
+        )
 
     def _record_timing(self, name: str, duration_s: float):
         """记录最近一次车辆检测内部阶段耗时，单位为秒。"""
@@ -49,8 +54,6 @@ class PredictorWithTracker:
 
     def _install_tracker_timing_hooks(self):
         """包裹 Ultralytics 跟踪回调和 BOTSORT.update，不修改第三方源码。"""
-        if self._timing_hooks_installed:
-            return
         predictor = getattr(self.model, "predictor", None)
         trackers = getattr(predictor, "trackers", None)
         if not trackers:
@@ -72,6 +75,8 @@ class PredictorWithTracker:
             return
 
         original_callback = callbacks[tracker_callback_index]
+        if getattr(original_callback, "_rm_timing_wrapped", False):
+            return
 
         def timed_tracker_callback(callback_predictor):
             started = time.perf_counter()
@@ -80,6 +85,10 @@ class PredictorWithTracker:
             finally:
                 self._last_tracker_callback_s += time.perf_counter() - started
 
+        # Preserve the identity used by Ultralytics register_tracker(), so it
+        # replaces this callback instead of adding a second tracker update.
+        timed_tracker_callback.func = getattr(original_callback, "func", original_callback)
+        timed_tracker_callback._rm_timing_wrapped = True
         callbacks[tracker_callback_index] = timed_tracker_callback
 
         for tracker in trackers:
@@ -167,9 +176,6 @@ class PredictorWithTracker:
         )[0]
         track_wall_s = time.perf_counter() - stage_start
         self._record_model_track_breakdown(results, track_wall_s)
-        # 第一次调用创建 tracker；十次预热保证正式运行前 hook 已生效。
-        self._install_tracker_timing_hooks()
-
         stage_start = time.perf_counter()
         if results.boxes is None or len(results.boxes) == 0:
             self._record_timing(

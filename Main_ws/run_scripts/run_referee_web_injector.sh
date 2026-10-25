@@ -10,9 +10,9 @@ if (($# != 0)); then
     exit 2
 fi
 
-if [[ -f /opt/ros/humble/setup.bash ]]; then
+if [[ -f /opt/ros/jazzy/setup.bash ]]; then
     set +u
-    source /opt/ros/humble/setup.bash
+    source /opt/ros/jazzy/setup.bash
     set -u
 fi
 

@@ -60,9 +60,9 @@ source_ros_env() {
         set +u
     fi
 
-    if [[ -f /opt/ros/humble/setup.bash ]]; then
+    if [[ -f /opt/ros/jazzy/setup.bash ]]; then
         # shellcheck disable=SC1091
-        source /opt/ros/humble/setup.bash
+        source /opt/ros/jazzy/setup.bash
     fi
     if [[ -f "$LIVOX_WS_DIR/install/setup.bash" ]]; then
         # shellcheck disable=SC1090

@@ -32,6 +32,27 @@ logging.basicConfig(
 )
 
 
+def _scrollable_panel(widget):
+    """让长控制面板可以滚动，避免子控件最小尺寸撑大整个窗口。"""
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setWidget(widget)
+    scroll.setMinimumSize(0, 0)
+    return scroll
+
+
+def _fit_window_to_screen(window, preferred_size):
+    screen = window.screen() or QApplication.primaryScreen()
+    if screen is None:
+        window.resize(preferred_size)
+        return
+    available = screen.availableGeometry()
+    size = preferred_size.boundedTo(available.size() * 0.9)
+    window.resize(size)
+    window.move(available.center() - QPoint(size.width() // 2, size.height() // 2))
+
+
 def get_extrinsics_record_dir():
     """返回 UI 外参记录目录。"""
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -1163,10 +1184,19 @@ class RadarStationMainWindow(QMainWindow):
         # 右侧区域：控制面板和状态监控
         right_panel = self.create_control_panel()
 
-        # 添加到主布局
-        main_layout.addWidget(left_panel, 2)  # 左侧占2/5
-        main_layout.addWidget(center_panel, 2)  # 中间占2/5
-        main_layout.addWidget(right_panel, 1)  # 右侧占1/5
+        # 三栏可拖动分配空间；控制区独立滚动，不再撑大主窗口。
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(center_panel)
+        self.control_scroll = _scrollable_panel(right_panel)
+        self.control_scroll.setMinimumWidth(260)
+        self.main_splitter.addWidget(self.control_scroll)
+        control_width = right_panel.minimumSizeHint().width() + self.style().pixelMetric(QStyle.PM_ScrollBarExtent)
+        self.main_splitter.setSizes([750, 650, max(450, control_width)])
+        for index, stretch in enumerate((4, 4, 3)):
+            self.main_splitter.setStretchFactor(index, stretch)
+        main_layout.addWidget(self.main_splitter)
 
     # 修改原有的RadarStationMainWindow类中的create_image_panel方法
     def create_image_panel(self):
@@ -1181,11 +1211,11 @@ class RadarStationMainWindow(QMainWindow):
         self.target_tracker_size = QSize(819, 700)
         # self.target_camera_size = QSize(576, 432)  # 2/5 of 1440px width
         # self.target_tracker_size = QSize(576, 432)
-        self.image_display_min_size = QSize(320, 440)
+        self.image_display_min_size = QSize(240, 180)
         self.visualization_label = QLabel("检测与追踪画面")
         self.visualization_label.setMinimumSize(self.image_display_min_size)
         self.visualization_label.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Expanding
+            QSizePolicy.Ignored, QSizePolicy.Ignored
         )
         self.visualization_label.setStyleSheet("border: 1px solid black")
         self.visualization_label.setAlignment(Qt.AlignCenter)
@@ -1257,19 +1287,20 @@ class RadarStationMainWindow(QMainWindow):
             self.target_camera_size.height() // 2,
         )
         outpost_row = QWidget()
-        outpost_layout = QHBoxLayout(outpost_row)
+        outpost_layout = QVBoxLayout(outpost_row)
         outpost_layout.setContentsMargins(0, 0, 0, 0)
 
         self.outpost_binary_label = QLabel("前哨站二值图")
-        self.outpost_binary_label.setFixedSize(self.outpost_binary_size)
+        self.outpost_binary_label.setMinimumSize(160, 100)
+        self.outpost_binary_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.outpost_binary_label.setStyleSheet("border: 1px solid black")
         self.outpost_binary_label.setAlignment(Qt.AlignCenter)
-        outpost_layout.addWidget(self.outpost_binary_label, 0, Qt.AlignLeft | Qt.AlignTop)
+        outpost_layout.addWidget(self.outpost_binary_label, 1)
 
         outpost_cfg = self._load_outpost_light_ui_config()
         outpost_controls_widget = QWidget()
         outpost_controls_layout = QHBoxLayout(outpost_controls_widget)
-        outpost_controls_layout.setContentsMargins(8, 0, 0, 0)
+        outpost_controls_layout.setContentsMargins(0, 0, 0, 0)
 
         hsv_group = QGroupBox("HSV阈值")
         hsv_layout = QGridLayout(hsv_group)
@@ -1360,14 +1391,18 @@ class RadarStationMainWindow(QMainWindow):
         ########################################################################
         outpost_controls_layout.addWidget(hsv_group)
         outpost_controls_layout.addWidget(state_group)
-        outpost_layout.addWidget(outpost_controls_widget)
-        outpost_layout.addStretch()
-        layout.addWidget(outpost_row, 0)
+        # 预览与参数分为标签页，保持相机画面有足够空间。
+        self.image_controls_tabs = QTabWidget()
+        self.image_controls_tabs.setMinimumSize(260, 180)
+        self.image_controls_tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.image_controls_tabs.setMaximumHeight(460)
+        layout.addWidget(self.image_controls_tabs, 1)
         ########################################################################
 
 
         # 相机控制按钮
-        camera_controls = QHBoxLayout()
+        camera_controls_widget = QWidget()
+        camera_controls = QVBoxLayout(camera_controls_widget)
 
         # Basic control of camera
         basic_controls = QHBoxLayout()
@@ -1382,7 +1417,6 @@ class RadarStationMainWindow(QMainWindow):
         # 整车检测置信度运行时调节
         car_detect_controls = QHBoxLayout()
         car_conf_label = QLabel("整车置信度:")
-        car_conf_label.setFixedWidth(75)
         car_detect_controls.addWidget(car_conf_label)
         self.car_conf_input = QDoubleSpinBox()
         self.car_conf_input.setRange(0.0, 1.0)
@@ -1393,7 +1427,6 @@ class RadarStationMainWindow(QMainWindow):
             self.config.get("car_detector", {}).get("conf_thres", 0.3)
         )
         self.car_conf_input.setValue(car_conf_value)
-        self.car_conf_input.setFixedWidth(80)
         car_detect_controls.addWidget(self.car_conf_input)
         self.current_car_conf_label = QLabel(f"当前: {car_conf_value:.2f}")
         self.current_car_conf_label.setStyleSheet("color: gray; font-size: 12px;")
@@ -1404,18 +1437,15 @@ class RadarStationMainWindow(QMainWindow):
         # Exposure controls
         exposure_controls = QHBoxLayout()
         exposure_label = QLabel("曝光值:")
-        exposure_label.setFixedWidth(50)
         exposure_controls.addWidget(exposure_label)
         # 曝光值输入框
         self.exposure_input = QSpinBox()
         self.exposure_input.setRange(1, 100000)  # 曝光时间范围，单位微秒
         self.exposure_input.setValue(10000)  # 相机绑定后会同步真实启动值
         self.exposure_input.setSuffix(" μs")
-        self.exposure_input.setFixedWidth(100)
         exposure_controls.addWidget(self.exposure_input)
         # 曝光确认按钮
         self.exposure_confirm_btn = QPushButton("设置曝光")
-        self.exposure_confirm_btn.setFixedWidth(80)
         self.exposure_confirm_btn.setStyleSheet(
             "QPushButton { background-color: #2196F3; color: white; font-weight: bold; }"
         )
@@ -1431,18 +1461,15 @@ class RadarStationMainWindow(QMainWindow):
         # Gain controls
         gain_controls = QHBoxLayout()
         gain_label = QLabel("增益值:")
-        gain_label.setFixedWidth(50)
         gain_controls.addWidget(gain_label)
         # 增益值输入框
         self.gain_input = QSpinBox()
         self.gain_input.setRange(0, 100)  # 增益范围，单位dB
         self.gain_input.setValue(20)  # 相机绑定后会同步真实启动值
         self.gain_input.setSuffix(" dB")
-        self.gain_input.setFixedWidth(100)
         gain_controls.addWidget(self.gain_input)
         # 增益确认按钮
         self.gain_confirm_btn = QPushButton("设置增益")
-        self.gain_confirm_btn.setFixedWidth(80)
         self.gain_confirm_btn.setStyleSheet(
             "QPushButton { background-color: #FF9800; color: white; font-weight: bold; }"
         )
@@ -1455,7 +1482,10 @@ class RadarStationMainWindow(QMainWindow):
         gain_controls.addStretch()  # 添加弹性空间
         camera_controls.addLayout(gain_controls)
 
-        layout.addLayout(camera_controls)
+        camera_controls.addStretch()
+        self.image_controls_tabs.addTab(_scrollable_panel(camera_controls_widget), "相机控制")
+        self.image_controls_tabs.addTab(outpost_row, "前哨站二值图")
+        self.image_controls_tabs.addTab(_scrollable_panel(outpost_controls_widget), "前哨站参数")
 
         # 连接信号槽
         self.exposure_confirm_btn.clicked.connect(self.on_exposure_confirm)
@@ -1478,7 +1508,7 @@ class RadarStationMainWindow(QMainWindow):
         layout.addWidget(self.field_view)
 
         # 投影控制选项
-        controls = QHBoxLayout()
+        controls = QGridLayout()
         self.show_enemy_cb = QCheckBox("显示敌方车辆")
         self.show_ally_cb = QCheckBox("显示己方车辆")
         self.show_guessed_cb = QCheckBox("显示猜点")
@@ -1495,13 +1525,12 @@ class RadarStationMainWindow(QMainWindow):
         self.show_info_wave_cb.setChecked(True)
         self.show_tracking_cb.setChecked(True)
 
-        controls.addWidget(self.show_enemy_cb)
-        controls.addWidget(self.show_ally_cb)
-        controls.addWidget(self.show_guessed_cb)
-        controls.addWidget(self.show_lidar_cb)
-        controls.addWidget(self.show_projection_cb)
-        controls.addWidget(self.show_info_wave_cb)
-        controls.addWidget(self.show_tracking_cb)
+        for index, checkbox in enumerate((
+            self.show_enemy_cb, self.show_ally_cb, self.show_guessed_cb,
+            self.show_lidar_cb, self.show_projection_cb,
+            self.show_info_wave_cb, self.show_tracking_cb,
+        )):
+            controls.addWidget(checkbox, index // 2, index % 2)
         layout.addLayout(controls)
 
         self.show_enemy_cb.stateChanged.connect(self.update_display_settings)
@@ -2237,7 +2266,8 @@ class RadarStationMainWindow(QMainWindow):
         height, width, channel = image.shape
         q_image = QImage(image.data, width, height, channel * width, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(q_image).scaled(
-            self.outpost_binary_size, Qt.KeepAspectRatio, Qt.FastTransformation
+            self.outpost_binary_label.contentsRect().size(),
+            Qt.KeepAspectRatio, Qt.FastTransformation
         )
         self.outpost_binary_label.setPixmap(pixmap)
 
@@ -3687,7 +3717,7 @@ class FieldProjectionWidget(QWidget):
             ).copy()
             self._field_pixmap = QPixmap.fromImage(q_image)
 
-        self.setMinimumSize(560, 460)
+        self.setMinimumSize(240, 180)
 
         self.vehicles = []  # 车辆位置数据
         self.info_wave_positions_cm = {}  # 信息波 0x0A01 对方机器人坐标
@@ -5317,10 +5347,14 @@ class ManualExtrinsicsDialog(QDialog):
 
         self.init_ui()
         self.fill_with_initial_extrinsics()
+        _fit_window_to_screen(self, QSize(900, 1000))
 
     def init_ui(self):
         """初始化手动输入界面。"""
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        content = QWidget()
+        layout = QVBoxLayout(content)
+        outer_layout.addWidget(_scrollable_panel(content))
 
         title_label = QLabel("手动输入相机外参")
         title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
@@ -5334,6 +5368,7 @@ class ManualExtrinsicsDialog(QDialog):
             "3. 导入最近一次 UI 标定自动保存的外参。"
         )
         tips_label.setStyleSheet("color: #555; margin: 4px 8px;")
+        tips_label.setWordWrap(True)
         layout.addWidget(tips_label)
 
         mode_layout = QHBoxLayout()
@@ -5404,6 +5439,7 @@ class ManualExtrinsicsDialog(QDialog):
         self.load_latest_extrinsics_preview()
 
         self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("color: #666;")
         layout.addWidget(self.status_label)
         self._update_input_mode_hint()
@@ -5423,7 +5459,7 @@ class ManualExtrinsicsDialog(QDialog):
         button_layout.addStretch()
         button_layout.addWidget(self.confirm_btn)
         button_layout.addWidget(self.cancel_btn)
-        layout.addLayout(button_layout)
+        outer_layout.addLayout(button_layout)
 
     def fill_with_initial_extrinsics(self):
         """用当前外参或配置默认值回填输入框。"""
@@ -5637,6 +5673,7 @@ class KeypointCalibrationDialog(QDialog):
         self.residual = None
 
         self.init_ui()
+        _fit_window_to_screen(self, QSize(1800, 1200))
 
     def init_ui(self):
         """初始化标定界面"""
@@ -5649,13 +5686,10 @@ class KeypointCalibrationDialog(QDialog):
         layout.addWidget(title_label)
 
         instruction_label = QLabel(
-            "操作说明：\n"
-            "• 鼠标滚轮缩放图像\n"
-            "• 左键拖拽移动图像\n"
-            "• 单击左键标记关键点（拖拽时不会标记）\n"
-            "• 右键点击撤销最后一个关键点\n"
-            "• 至少标记4个关键点才能进行校准"
+            "操作说明：滚轮缩放；右键拖拽移动；左键拖拽框选前哨站区域；"
+            "左键单击标点；右键单击撤销；至少标记4个关键点后校准。"
         )
+        instruction_label.setWordWrap(True)
         instruction_label.setStyleSheet(
             "color: #666666; margin: 10px; padding: 10px; border: 1px solid #ddd;"
         )
@@ -5671,12 +5705,12 @@ class KeypointCalibrationDialog(QDialog):
 
         # 右侧：控制面板
         control_panel = self.create_control_panel()
-        main_layout.addWidget(control_panel, 1)
+        main_layout.addWidget(_scrollable_panel(control_panel), 1)
 
         layout.addWidget(main_widget)
 
         # 底部按钮
-        button_layout = QHBoxLayout()
+        button_layout = QGridLayout()
 
         self.clear_btn = QPushButton("清除所有点")
         self.clear_btn.setStyleSheet(
@@ -5724,16 +5758,12 @@ class KeypointCalibrationDialog(QDialog):
         )
         self.close_btn.clicked.connect(self.close)
 
-        button_layout.addWidget(self.clear_btn)
-        button_layout.addWidget(self.reset_view_btn)
-        button_layout.addWidget(self.fit_view_btn)
-        button_layout.addWidget(self.show_guide_btn)
-        button_layout.addWidget(self.calibrate_btn)
-        ########################################################################
-        button_layout.addWidget(self.confirm_roi_btn)
-        ########################################################################
-        button_layout.addStretch()
-        button_layout.addWidget(self.close_btn)
+        for index, button in enumerate((
+            self.clear_btn, self.reset_view_btn, self.fit_view_btn,
+            self.show_guide_btn, self.calibrate_btn, self.confirm_roi_btn,
+            self.close_btn,
+        )):
+            button_layout.addWidget(button, index // 4, index % 4)
 
         layout.addLayout(button_layout)
 
@@ -5748,7 +5778,8 @@ class KeypointCalibrationDialog(QDialog):
 
         # 创建支持缩放拖拽的图像标签
         self.image_label = ZoomableDraggableImageLabel()
-        self.image_label.setMinimumSize(800, 600)
+        self.image_label.setMinimumSize(320, 240)
+        self.image_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.image_label.setStyleSheet(
             "border: 2px solid #333; background-color: #f0f0f0;"
         )
@@ -6042,7 +6073,7 @@ class KeypointCalibrationDialog(QDialog):
 
 def launch():
     """启动雷达站主界面"""
-    qt_plugin_path = os.path.join(sys.prefix, "plugins")
+    qt_plugin_path = QLibraryInfo.location(QLibraryInfo.PluginsPath)
     QCoreApplication.setLibraryPaths([qt_plugin_path])
     os.environ["QT_PLUGIN_PATH"] = qt_plugin_path
     os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(

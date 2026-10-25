@@ -42,6 +42,11 @@ def get_parser():
         help="同步回放 test.yaml；不提供时保持正式比赛逻辑",
     )
     parser.add_argument(
+        "--disable-referee-io",
+        action="store_true",
+        help="不启动裁判串口与通信线程（无裁判系统的现场测试）",
+    )
+    parser.add_argument(
         "--opts",
         default=None,
         nargs=argparse.REMAINDER,
@@ -179,10 +184,10 @@ if __name__ == "__main__":
         from driver.referee.referee_comm import FACTION
 
         referee.faction = FACTION.RED if forced_faction == "red" else FACTION.BLUE
-    if not bool(runtime_test_cfg.get("disable_referee_io", False)):
+    if not (cli_args.disable_referee_io or bool(runtime_test_cfg.get("disable_referee_io", False))):
         referee.start() #启动裁判系统通讯
     else:
-        print("[同步回放] 已按 test.yaml 禁用裁判串口、UDP 收发线程。")
+        print("已禁用裁判串口和通信线程。")
     # print("RefereeCommManager started successfully.")
 
     event_loop = MainEventLoop( #实例化主事件循环

@@ -371,7 +371,7 @@ unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH PYTHONPATH LD_LIBRA
 if [ -f /lib/x86_64-linux-gnu/libusb-1.0.so.0 ]; then
     export LD_PRELOAD=/lib/x86_64-linux-gnu/libusb-1.0.so.0
 fi
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 if [ -f {LIVOX_WORKSPACE}/install/setup.bash ]; then
     source {LIVOX_WORKSPACE}/install/setup.bash
 fi
@@ -464,7 +464,7 @@ def run(config_path: Path, preflight_only: bool) -> int:
     if not ros_setup.is_file():
         raise ReplayConfigurationError(
             "Lidar_ws 尚未构建，缺少 install/setup.bash。请先执行：\n"
-            "  source /opt/ros/humble/setup.bash\n"
+            "  source /opt/ros/jazzy/setup.bash\n"
             "  cd Lidar_ws && ./build.sh"
         )
 
@@ -529,10 +529,10 @@ def run(config_path: Path, preflight_only: bool) -> int:
         )
         python_script = f"""
 set -e
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source {ROS_WORKSPACE}/install/setup.bash
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate cud128
+conda activate {shlex.quote(os.environ.get('CONDA_ENV', 'cud128'))}
 cd {shlex.quote(str(ALGORITHM_ROOT))}
 export RM_EXTRINSICS_IMPORT_PATH={shlex.quote(str(runtime['extrinsics_path']))}
 exec bash run_scripts/run_test.sh {shlex.quote(str(runtime['runtime_params']))} {shlex.quote(str(device_config))} {shlex.quote(str(runtime['resolved_test']))}

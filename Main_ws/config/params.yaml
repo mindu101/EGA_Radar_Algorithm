@@ -1,5 +1,5 @@
 car_detector:
-  weights_path: "weights/car/best.engine" # Path to the car detection model weights
+  weights_path: "weights/local/best.engine" # Engine built for this GPU
   img_size: 1280
   conf_thres: 0.3   
   iou_thres: 0.5
@@ -18,7 +18,7 @@ armor_detector:
   # img_size: [640, 640]
   
   ##### Weights and size configuration for two step detector
-  weights_path: "weights/armor/armor_best.engine" 
+  weights_path: "weights/local/armor_best.engine"
   img_size: 192
   
   ##### Weights and size configuration END
