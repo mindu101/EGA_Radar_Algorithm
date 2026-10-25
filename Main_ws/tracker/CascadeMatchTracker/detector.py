@@ -48,40 +48,17 @@ class BaseDetector:
         )
 
         armor_cfg = config["armor_detector"]
-        if armor_cfg["use_enhanced_detector"]:
-            if armor_cfg["armor_detector_type"] == "three_step":
-                from model.armor_detector import ArmorClassifier, ArmorDetectorClassifier
-                from model.armor_light_classifier import ArmorPlateParams
-                from model.pfa_yolov5.predictor import YOLOv5Detector
-
-                original_detector = YOLOv5Detector(
-                    weights_path=armor_cfg["weights_path"],
-                    device=self.device,
-                    img_size=armor_cfg["img_size"],
-                    augment=False,
-                    visualize=False,
-                    classes_name=armor_cfg["class_names"],
-                    conf_thres=armor_cfg["conf_thres"],
-                    iou_thres=armor_cfg["iou_thres"],
-                    max_det=armor_cfg["max_det"],
-                )
-                classifier = ArmorClassifier(
-                    armor_params=ArmorPlateParams(),
-                    digit_model_type=armor_cfg["digit_model_type"],
-                    digit_weights_path=armor_cfg["digit_weights_path"],
-                    debug=False,
-                )
-                self.armor_detector = ArmorDetectorClassifier(
-                    original_detector,
-                    classifier,
-                    verbose=armor_cfg.get("verbose", False),
-                )
-            else:
-                from model.armor_detector import TwoStepArmorDetectorClassifier
-
-                self.armor_detector = TwoStepArmorDetectorClassifier.from_config(config)
-        else:
+        if not armor_cfg["use_enhanced_detector"]:
             raise ValueError("新状态机要求 armor_detector.use_enhanced_detector=true")
+        # three_step 路径（pfa_yolov5 + 传统灯条颜色分类器）已移除：
+        # 现役配置只有 two_step（装甲 YOLO + 数字分类），历史实现见 git 记录。
+        if armor_cfg["armor_detector_type"] == "three_step":
+            raise ValueError(
+                "armor_detector_type=three_step 已移除，请改用 two_step"
+            )
+        from model.armor_detector import TwoStepArmorDetectorClassifier
+
+        self.armor_detector = TwoStepArmorDetectorClassifier.from_config(config)
 
         digit_cfg = config["digit_detector"]
         self.digit_weight = float(digit_cfg["digit_confidence_weight"])

@@ -42,8 +42,6 @@ logger = logging.getLogger(__name__)
 
 import sys, os
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "..", "model", "pfa_yolov5"))
-
 
 @dataclass
 class RefereeDivision2dPosition:

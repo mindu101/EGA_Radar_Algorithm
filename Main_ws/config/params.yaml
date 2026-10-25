@@ -11,7 +11,7 @@ car_detector:
 armor_detector:
   class_names: ["B1", "B2", "B3", "B4", "B7", "R1", "R2", "R3", "R4", "R7", "G1", "G2", "G3", "G4", "G7"]
   use_enhanced_detector: true
-  armor_detector_type: "two_step" # three_step, three_step
+  armor_detector_type: "two_step" # 仅支持 two_step（three_step 旧路径已移除）
 
   ##### Weights and size configuration for three step detector
   # weights_path: "weights/armor_pfa_dynamic.engine"
