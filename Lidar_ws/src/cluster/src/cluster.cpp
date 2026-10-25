@@ -186,7 +186,7 @@ ClusterRegion Cluster::GetClusterRegion(
 void Cluster::AppendClusterCenters(
     const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
     const ClusterParameters& params,
-    pcl::PointCloud<pcl::PointXYZ>& output_cloud) const
+    pcl::PointCloud<pcl::PointXYZI>& output_cloud) const
 {
     if (cloud->empty()) {
         return;
@@ -206,7 +206,7 @@ void Cluster::AppendClusterCenters(
     ec.extract(cluster_indices);
 
     for (const auto& indices : cluster_indices) {
-        pcl::PointXYZ center{};
+        pcl::PointXYZI center{};
         for (const int point_index : indices.indices) {
             const auto& point = cloud->points[point_index];
             center.x += point.x;
@@ -218,6 +218,7 @@ void Cluster::AppendClusterCenters(
         center.x /= point_count;
         center.y /= point_count;
         center.z /= point_count;
+        center.intensity = point_count;
         output_cloud.points.push_back(center);
     }
 }
@@ -233,6 +234,12 @@ void Cluster::clusterAndPublish(
 
     pcl::fromROSMsg(*msg, *cloud);
     if (cloud->empty()) {
+        // 空云也发布：维持话题心跳，下游能区分「当前无目标」和「节点异常」。
+        sensor_msgs::msg::PointCloud2 empty_output;
+        pcl::toROSMsg(*cloud, empty_output);
+        empty_output.header.frame_id = "rm_frame";
+        empty_output.header.stamp = msg->header.stamp;
+        publisher->publish(empty_output);
         return;
     }
     pcl::PointCloud<pcl::PointXYZ>::Ptr near_cloud(
@@ -258,7 +265,7 @@ void Cluster::clusterAndPublish(
         }
     }
 
-    pcl::PointCloud<pcl::PointXYZ> out_cloud;
+    pcl::PointCloud<pcl::PointXYZI> out_cloud;
     AppendClusterCenters(
         near_cloud, near_cluster_params_, out_cloud);
     AppendClusterCenters(
@@ -272,8 +279,9 @@ void Cluster::clusterAndPublish(
     publisher->publish(output);
     std::chrono::steady_clock::time_point t2 =
         std::chrono::steady_clock::now();
-    RCLCPP_INFO(
-        this->get_logger(), "Cluster callback time: %f",
+    RCLCPP_INFO_THROTTLE(
+        this->get_logger(), *this->get_clock(), 5000,
+        "Cluster callback time: %f",
         std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
                 .count() /
             1000.0);

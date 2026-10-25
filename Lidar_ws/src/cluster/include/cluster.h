@@ -50,10 +50,11 @@ private:
         const sensor_msgs::msg::PointCloud2::SharedPtr msg,
         rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr publisher);
     ClusterRegion GetClusterRegion(const pcl::PointXYZ& point) const;
+    // 输出聚类的质心，intensity 携带该聚类的点数（供下游按目标尺寸过滤）。
     void AppendClusterCenters(
         const pcl::PointCloud<pcl::PointXYZ>::Ptr& cloud,
         const ClusterParameters& params,
-        pcl::PointCloud<pcl::PointXYZ>& output_cloud) const;
+        pcl::PointCloud<pcl::PointXYZI>& output_cloud) const;
     std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> accumulated_clouds_;
 };
 }  // namespace tdt_radar
