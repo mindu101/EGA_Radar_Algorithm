@@ -48,25 +48,113 @@ def read_binary_stl(path):
     return unique, faces
 
 
+def detect_floor_and_anchor(vertices, faces, field_x, field_y):
+    """自动找地板平面并确定坐标系原点。
+
+    官方 CAD 模型的坐标原点/朝向和本项目约定（场地一角为原点、地面
+    z=0）不一致，且模型常带场外结构（操作间、围挡外底座），不能直接用
+    整体包围盒归零。这里按三步走：
+
+    1) 地板 = 面积最大的近水平面所在 z 层，把该层平移到 z=0；
+    2) 地板的 x/y 范围可能比赛场大（如 28×16），用「滑动的 field_x×field_y
+       窗口取地板面积最大者」确定场地真实边界（多出的条带是场外结构）；
+    3) 平移使场地一角为 (0,0)。
+    """
+    a, b, c = vertices[faces[:, 0]], vertices[faces[:, 1]], vertices[faces[:, 2]]
+    cross = np.cross(b - a, c - a)
+    norm = np.linalg.norm(cross, axis=1)
+    area = 0.5 * norm
+    cz = (a[:, 2] + b[:, 2] + c[:, 2]) / 3.0
+    horiz = (np.abs(cross[:, 2]) / np.maximum(norm, 1e-12)) > 0.9
+
+    bin_size = 0.05
+    z_lo = np.floor(cz[horiz].min())
+    hist, edges = np.histogram(
+        cz[horiz], bins=np.arange(z_lo, cz[horiz].max() + bin_size, bin_size),
+        weights=area[horiz],
+    )
+    floor_z = 0.5 * (edges[np.argmax(hist)] + edges[np.argmax(hist) + 1])
+    on_floor = horiz & (np.abs(cz - floor_z) < bin_size)
+    print(f"地板平面: z={floor_z:+.3f} m, 面积 {area[on_floor].sum():.0f} m²")
+
+    floor_v = vertices[np.unique(faces[on_floor])]
+
+    def anchor_axis(vals, tri_axis_normals, tri_area, tri_zmax, tri_zmin,
+                    tri_centroid_axis, field_len, axis_name):
+        """用边界墙线锚定场地边界；找不到墙再退回地板滑窗。
+
+        墙线 = 面法向垂直于该轴、且穿过「地板上方 0.5~1.2m」条带的竖直
+        面积聚集处。有两侧墙且间距≈field_len 直接用；只有一侧墙时，
+        由「地板必须覆盖整个赛场」约束定方向。
+        """
+        band = (tri_zmax > floor_z + 0.5) & (tri_zmin < floor_z + 1.2)
+        walls = band & tri_axis_normals
+        if walls.sum() > 0:
+            hist_w, edges_w = np.histogram(
+                tri_centroid_axis[walls], bins=np.arange(
+                    vals.min(), vals.max() + 0.2, 0.2),
+                weights=tri_area[walls],
+            )
+            centers = 0.5 * (edges_w[:-1] + edges_w[1:])
+            peaks = centers[hist_w > 5.0]  # 面积聚集 >5m² 视为墙线
+            if len(peaks):
+                groups = np.split(
+                    peaks, np.where(np.diff(peaks) > 1.0)[0] + 1
+                )
+                lines = np.array([g.mean() for g in groups])
+                near = lines[np.abs(lines - lines.mean()) < field_len]
+                lo_side = np.sort(near[near < near.mean()])[::-1]  # 近到远
+                hi_side = np.sort(near[near > near.mean()])
+                # 优先找「一对间距≈field_len」的线（真边墙），避免误选
+                # 场内高地的侧壁
+                for w_lo in lo_side:
+                    for w_hi in hi_side:
+                        if abs((w_hi - w_lo) - field_len) < 0.5:
+                            print(f"{axis_name} 轴: 两侧墙线 {w_lo:+.2f}/{w_hi:+.2f}")
+                            return w_lo
+                for w in near:  # 单侧墙：由地板覆盖范围定方向
+                    if vals.min() <= w - field_len + 0.3:
+                        print(f"{axis_name} 轴: 单侧墙线 {w:+.2f}（作为远界）")
+                        return w - field_len
+                    if vals.max() >= w + field_len - 0.3:
+                        print(f"{axis_name} 轴: 单侧墙线 {w:+.2f}（作为近界）")
+                        return w
+        # 兜底：滑窗取地板面积最大者
+        on_floor_pts = tri_centroid_axis[on_floor]
+        on_floor_area = tri_area[on_floor]
+        lo_cut = vals.min() + field_len
+        hi_cut = vals.max() - field_len
+        area_lo = on_floor_area[on_floor_pts <= lo_cut].sum()
+        area_hi = on_floor_area[on_floor_pts >= hi_cut].sum()
+        origin = vals.min() if area_lo >= area_hi else vals.max() - field_len
+        print(
+            f"警告: {axis_name} 轴未识别到墙线，用地板滑窗锚定 "
+            f"(lo={area_lo:.0f}m² hi={area_hi:.0f}m²)"
+        )
+        return origin
+
+    cross_dir_x = np.abs(cross[:, 0]) / np.maximum(norm, 1e-12) > 0.9
+    cross_dir_y = np.abs(cross[:, 1]) / np.maximum(norm, 1e-12) > 0.9
+    tri_zmax = np.maximum(np.maximum(a[:, 2], b[:, 2]), c[:, 2])
+    tri_zmin = np.minimum(np.minimum(a[:, 2], b[:, 2]), c[:, 2])
+    cx = (a[:, 0] + b[:, 0] + c[:, 0]) / 3.0
+    cy = (a[:, 1] + b[:, 1] + c[:, 1]) / 3.0
+
+    x0 = anchor_axis(floor_v[:, 0], cross_dir_x, area, tri_zmax, tri_zmin,
+                     cx, field_x, "x")
+    y0 = anchor_axis(floor_v[:, 1], cross_dir_y, area, tri_zmax, tri_zmin,
+                     cy, field_y, "y")
+    print(f"场地锚定: x 从 {x0:+.3f}, y 从 {y0:+.3f}, 地板 z={floor_z:+.3f} -> 归零")
+    vertices = vertices - np.array([x0, y0, floor_z])
+    return vertices
+
+
 def normalize_to_field_coords(vertices, field_x, field_y):
-    """毫米->米 + 平移到原点；并校验尺寸接近规则手册的 28×15m。"""
+    """毫米->米 + 地板平面检测与锚定（见 detect_floor_and_anchor）。"""
     span = vertices.max(axis=0) - vertices.min(axis=0)
     if span[0] > 100 or span[1] > 100:  # CAD 毫米模型
         vertices = vertices / 1000.0
-        span = span / 1000.0
         print("检测到毫米单位，已除以 1000 转米。")
-    vertices = vertices - np.array(
-        [vertices[:, 0].min(), vertices[:, 1].min(), vertices[:, 2].min()]
-    )
-    print(
-        f"归一化后包围盒: x[0,{span[0]:.2f}] y[0,{span[1]:.2f}] "
-        f"z[0,{span[2]:.2f}]（米）"
-    )
-    if abs(span[0] - field_x) > 1.0 or abs(span[1] - field_y) > 1.0:
-        print(
-            f"警告: 场地尺寸 {span[0]:.1f}×{span[1]:.1f} 与预期 "
-            f"{field_x}×{field_y} 偏差超过 1m，请人工核对来源模型。"
-        )
     return vertices
 
 
@@ -258,8 +346,11 @@ def main():
 
     vertices, faces = read_binary_stl(args.stl_path)
     vertices = normalize_to_field_coords(vertices, args.field_x, args.field_y)
-    vertices, faces = clip_outside_field(
+    vertices = detect_floor_and_anchor(
         vertices, faces, args.field_x, args.field_y
+    )
+    vertices, faces = clip_outside_field(
+        vertices, faces, args.field_x, args.field_y, margin=0.3
     )
     if not args.no_wall:
         vertices, faces = add_perimeter_walls(
