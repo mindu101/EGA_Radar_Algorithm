@@ -39,9 +39,11 @@ def main():
         gmsh.model.occ.importShapes(args.step_path)
         gmsh.model.occ.synchronize()
 
-        xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.occ.getBoundingBox(
-            -1, -1
-        )
+        # gmsh 4.15 的 occ.getBoundingBox 不支持 (-1,-1) 通配，用 model 版
+        n_solids = len(gmsh.model.getEntities(3))
+        n_surfaces = len(gmsh.model.getEntities(2))
+        print(f"实体: {n_solids} 个体 / {n_surfaces} 个面")
+        xmin, ymin, zmin, xmax, ymax, zmax = gmsh.model.getBoundingBox(-1, -1)
         print(
             f"包围盒(模型单位): x[{xmin:.1f},{xmax:.1f}] "
             f"y[{ymin:.1f},{ymax:.1f}] z[{zmin:.1f},{zmax:.1f}]"
