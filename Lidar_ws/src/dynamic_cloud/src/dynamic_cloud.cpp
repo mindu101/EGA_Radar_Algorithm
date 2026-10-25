@@ -136,7 +136,8 @@ DynamicCloud::DynamicCloud(const rclcpp::NodeOptions& node_options)
 {
     RCLCPP_INFO(this->get_logger(), "Dynamic_cloud Node start");
     // 以下旧参数仅用于兼容历史启动文件；新配置应使用三个区域各自的参数。
-    double map_distance_threshold = 0.1;
+    // map_distance_threshold 单位为米（到静态地图最近邻的直线距离）。
+    double map_distance_threshold = 0.3;
     std::string half_split_axis = "x";
     double half_split_position = 14.0;
     bool near_half_positive = false;
@@ -367,8 +368,8 @@ DynamicCloud::DynamicCloud(const rclcpp::NodeOptions& node_options)
         "/lidar_detect", 10);
     RCLCPP_INFO(
         this->get_logger(),
-        "动态点三分区配置: 近端=%d帧/%.3fm^2 中间=%d帧/%.3fm^2 "
-        "远端=%d帧/%.3fm^2 分界轴=%s 近中=%.3fm 中远=%.3fm "
+        "动态点三分区配置: 近端=%d帧/%.3fm 中间=%d帧/%.3fm "
+        "远端=%d帧/%.3fm 分界轴=%s 近中=%.3fm 中远=%.3fm "
         "近端位于%s方向; 其他/飞行点=%d帧",
         near_accumulate_time_, near_map_distance_threshold_,
         middle_accumulate_time_, middle_map_distance_threshold_,
@@ -439,98 +440,32 @@ void DynamicCloud::GetDynamicCloud(
     pcl::PointCloud<pcl::PointXYZ>& input_cloud,
     pcl::PointCloud<pcl::PointXYZ>& output_cloud, int thread_num)
 {
-    int                                         K = 1;
-    std::vector<std::thread>                    threads;
-    thread_num = std::max(1, std::min(thread_num, static_cast<int>(
-                                                 input_cloud.points.size())));
-    std::vector<pcl::PointCloud<pcl::PointXYZ>> clouds(thread_num);
-    auto start = std::chrono::system_clock::now();
-    int  cloud_size = input_cloud.points.size();
+    // 静态点剔除：每个点在地图 KD 树里查最近邻，直线距离超过所属分区
+    // 阈值（单位米）即视为动态点。FLANN 的只读查询可并发，用 OpenMP 并行。
+    const int cloud_size = static_cast<int>(input_cloud.points.size());
     if (cloud_size == 0) {
         return;
     }
-    int  step = (cloud_size + thread_num - 1) / thread_num;
-    for (int i = 0; i < thread_num; i++) {
-        threads.push_back(std::thread([i, step, cloud_size, &clouds,
-                                       &input_cloud, this, K]() {
-            const int begin = i * step;
-            const int end = std::min((i + 1) * step, cloud_size);
-            for (int j = begin; j < end; j++) {
-                std::vector<int>   pointIdxNKNSearch(K);
-                std::vector<float> pointNKNSquaredDistance(K);
-                if (kd_Tree.nearestKSearch(input_cloud.points[j], K,
-                                           pointIdxNKNSearch,
-                                           pointNKNSquaredDistance) > 0) {
-                    const float threshold = static_cast<float>(
-                        GetMapDistanceThreshold(input_cloud.points[j]));
-                    if (pointNKNSquaredDistance[0] > threshold) {
-                        clouds[i].points.push_back(input_cloud.points[j]);
-                    }
-                }
+    std::vector<char> keep_flags(cloud_size, 0);
+#pragma omp parallel for num_threads(thread_num) schedule(static)
+    for (int j = 0; j < cloud_size; j++) {
+        std::vector<int>   point_idx(1);
+        std::vector<float> point_squared_distance(1);
+        if (kd_Tree.nearestKSearch(
+                input_cloud.points[j], 1, point_idx, point_squared_distance) >
+            0) {
+            const float threshold_m = static_cast<float>(
+                GetMapDistanceThreshold(input_cloud.points[j]));
+            if (point_squared_distance[0] > threshold_m * threshold_m) {
+                keep_flags[j] = 1;
             }
-        }));
+        }
     }
-    for (auto& t : threads) {
-        t.join();
+    for (int j = 0; j < cloud_size; j++) {
+        if (keep_flags[j]) {
+            output_cloud.push_back(input_cloud.points[j]);
+        }
     }
-    for (auto& cloud : clouds) {
-        output_cloud += cloud;
-    }
-    auto end = std::chrono::system_clock::now();
-}
-
-void TransformCloud(pcl::PointCloud<pcl::PointXYZ>&      input_cloud,
-                    pcl::PointCloud<pcl::PointXYZ>&      output_cloud,
-                    geometry_msgs::msg::TransformStamped transform_stamped,
-                    int                                  thread_num)
-{
-    std::vector<std::thread>                    threads;
-    std::vector<pcl::PointCloud<pcl::PointXYZ>> clouds(thread_num);
-    auto start = std::chrono::system_clock::now();
-    int  cloud_size = input_cloud.points.size();
-    int  step = cloud_size / thread_num;
-
-    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-    transform.translation() << transform_stamped.transform.translation.x,
-        transform_stamped.transform.translation.y,
-        transform_stamped.transform.translation.z;
-    Eigen::Quaternionf rotation(transform_stamped.transform.rotation.w,
-                                transform_stamped.transform.rotation.x,
-                                transform_stamped.transform.rotation.y,
-                                transform_stamped.transform.rotation.z);
-    transform.rotate(rotation);
-
-    for (int i = 0; i < thread_num; i++) {
-        threads.push_back(std::thread(
-            [i, step, cloud_size, &clouds, &input_cloud, transform]() {
-                for (int j = i * step; j < (i + 1) * step && j < cloud_size;
-                     j++) {
-                    pcl::PointXYZ   point = input_cloud.points[j];
-                    Eigen::Vector3f point_vec(point.x, point.y, point.z);
-                    Eigen::Vector3f point_out = transform * point_vec;
-
-                    pcl::PointXYZ transformed_point;
-                    transformed_point.x = point_out.x();
-                    transformed_point.y = point_out.y();
-                    transformed_point.z = point_out.z();
-
-                    clouds[i].points.push_back(transformed_point);
-                }
-            }));
-    }
-
-    for (auto& t : threads) {
-        t.join();
-    }
-    for (auto& cloud : clouds) {
-        output_cloud += cloud;
-    }
-    auto end = std::chrono::system_clock::now();
-    RCLCPP_INFO(
-        rclcpp::get_logger("rclcpp"), "transform time: %f",
-        std::chrono::duration_cast<std::chrono::microseconds>(end - start)
-                .count() /
-            1000.0);
 }
 
 void DynamicCloud::callback(
@@ -746,8 +681,9 @@ void DynamicCloud::callback(
     detect_pub_->publish(lidar_detect);
     std::chrono::steady_clock::time_point t2 =
         std::chrono::steady_clock::now();
-    RCLCPP_INFO(
-        rclcpp::get_logger("rclcpp"), "Dynamic callback time: %f",
+    RCLCPP_INFO_THROTTLE(
+        this->get_logger(), *this->get_clock(), 5000,
+        "Dynamic callback time: %f",
         std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1)
                 .count() /
             1000.0);

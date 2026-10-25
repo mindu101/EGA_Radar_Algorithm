@@ -164,11 +164,12 @@ lidar_pipeline:
     middle_far_split_position: 22.0
     # true 表示坐标较大的一端为近端；当前雷达位于 x 较小端，因此为 false。
     near_region_positive: false
-    # 三个区域与静态地图最近邻距离的平方阈值，单位 m^2。
-    # 影响：点到地图最近邻平方距离大于所在区域阈值时认为是动态点。
-    near_map_distance_threshold: 0.05
-    middle_map_distance_threshold: 0.04
-    far_map_distance_threshold: 0.03
+    # 三个区域与静态地图最近邻的直线距离阈值，单位米（历史版本误按平方距离
+    # 比较，0.05/0.04/0.03 m^2 等效 0.224/0.200/0.173 m，此处已换算）。
+    # 影响：点到地图最近邻直线距离大于所在区域阈值时认为是动态点。
+    near_map_distance_threshold: 0.224
+    middle_map_distance_threshold: 0.200
+    far_map_distance_threshold: 0.173
     # 动态点提取线程数。
     # 影响：值大可提升吞吐，但过大时线程调度开销会上升。
     dynamic_thread_num: 12
