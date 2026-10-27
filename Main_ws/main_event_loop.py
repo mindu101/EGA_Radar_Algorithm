@@ -70,6 +70,15 @@ class MainEventLoop:
         self.lidar_config = self.config.get("lidar_fusion", {})
         self.tf_debug_cfg = self.config.get("debug", {}).get("tf_debug", {})
         self.tf_debug_publisher = CameraTfDebugPublisher(self.tf_debug_cfg)
+        self.sentry_radar_publisher = None
+        sentry_radar_cfg = self.config.get("sentry_radar", {})
+        if sentry_radar_cfg.get("enabled", False):
+            from driver.sentry.radar_snapshot_publisher import SentryRadarSnapshotPublisher
+
+            self.sentry_radar_publisher = SentryRadarSnapshotPublisher(
+                topic=str(sentry_radar_cfg.get("topic", "/sentry/radar_snapshot")),
+                frame_id=str(sentry_radar_cfg.get("frame_id", "radar_field")),
+            )
         self.lidar_client = lidar_client
         self.lidar_fly_client = lidar_fly_client
         self.lidar_points_cm = []
@@ -1084,6 +1093,8 @@ class MainEventLoop:
             self.lidar_fly_client.stop()
         if self.tf_debug_publisher is not None:
             self.tf_debug_publisher.stop()
+        if self.sentry_radar_publisher is not None:
+            self.sentry_radar_publisher.stop()
         if getattr(self, "xy_map_manager", None) is not None:
             self.xy_map_manager.close()
         if self.metrics_exporter is not None:
@@ -2057,6 +2068,11 @@ class MainEventLoop:
     def _publish_completed_frame_downstream(self, completed: CompletedFrame):
         """发布可视化、TF、裁判消息和指标；慢消费者不得反压状态事务。"""
         downstream_started = time.perf_counter()
+        try:
+            if self.sentry_radar_publisher is not None:
+                self.sentry_radar_publisher.publish(completed)
+        except Exception:
+            logger.exception("提交帧 %d 的哨兵雷达快照发布失败。", completed.commit_sequence)
         atomic_started = time.perf_counter()
         try:
             if self.visualization_worker is not None:
@@ -2544,6 +2560,11 @@ class MainEventLoop:
                 )
                 with self._pipeline_output_lock:
                     self._latest_pipeline_output = serial_completed
+                try:
+                    if self.sentry_radar_publisher is not None:
+                        self.sentry_radar_publisher.publish(serial_completed)
+                except Exception:
+                    logger.exception("串行帧 %d 的哨兵雷达快照发布失败。", commit_sequence)
 
             except Exception as e:
                 import traceback

@@ -49,6 +49,12 @@ detection_pipeline:
   max_commit_age_sec: 0.20
   worker_join_timeout_sec: 5.0
 
+# Decision ROS port. Coordinates use the radar field frame, in metres.
+sentry_radar:
+  enabled: true
+  topic: "/sentry/radar_snapshot"
+  frame_id: "radar_field"
+
 # 高可靠相机投影—雷达配对残差的在线统计；仅保存在本次进程内。
 projection_lidar_statistics:
   enabled: true

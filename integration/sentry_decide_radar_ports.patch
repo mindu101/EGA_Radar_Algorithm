@@ -1,0 +1,297 @@
+diff --git a/src/sentry_decide/CMakeLists.txt b/src/sentry_decide/CMakeLists.txt
+--- a/src/sentry_decide/CMakeLists.txt
++++ b/src/sentry_decide/CMakeLists.txt
+@@ -14,0 +15 @@
++find_package(rm2026_vision_interface REQUIRED)
+@@ -39 +40 @@
+-ament_target_dependencies(sentry_decide_ros rclcpp std_msgs geometry_msgs nav_msgs)
++ament_target_dependencies(sentry_decide_ros rclcpp std_msgs geometry_msgs nav_msgs rm2026_vision_interface)
+diff --git a/src/sentry_decide/package.xml b/src/sentry_decide/package.xml
+--- a/src/sentry_decide/package.xml
++++ b/src/sentry_decide/package.xml
+@@ -13,0 +14 @@
++  <depend>rm2026_vision_interface</depend>
+diff --git a/src/sentry_decide/include/sentry_decide/ports_adapter.hpp b/src/sentry_decide/include/sentry_decide/ports_adapter.hpp
+--- a/src/sentry_decide/include/sentry_decide/ports_adapter.hpp
++++ b/src/sentry_decide/include/sentry_decide/ports_adapter.hpp
+@@ -3 +3 @@
+-// ⚠️ 这里的**话题名与消息类型都是占位实现**，用标准消息先打通链路。
++// Most topics remain provisional; radar uses a typed snapshot interface.
+@@ -21 +21 @@
+-//   /sentry/radar_state Int32MultiArray(2) [state, age_ms]
++//   /sentry/radar_snapshot rm2026_vision_interface/SentryRadarSnapshot
+@@ -36,0 +37 @@
++#include <rm2026_vision_interface/msg/sentry_radar_snapshot.hpp>
+@@ -45,0 +47,2 @@
++#include <array>
++#include <chrono>
+@@ -48,0 +52 @@
++#include <vector>
+@@ -74 +78,4 @@
+-  std::string radar_topic = "/sentry/radar_state";       // 雷达健康：Int32MultiArray(2)，[state, age_ms]
++  std::string radar_topic = "/sentry/radar_snapshot";    // 同帧目标与健康数据
++  std::string radar_frame_id = "radar_field";            // 拒收其他坐标系
++  double radar_stale_ms = 300.0;
++  double radar_lost_ms = 1000.0;
+@@ -200,2 +207,2 @@
+-  //       默认值是 0，便于雷达未接线时也能跑通整棵树。
+-  // 副作用：仅加锁读 radar_state_，来源是 /sentry/radar_state 的第 0 位。
++  //       未收到快照前为 kRadarLost。
++  // 副作用：仅加锁读最近快照的单调时钟年龄。
+@@ -206,2 +213,2 @@
+-  // 返回：double，单位毫秒；0.0 表示新鲜/未接线，没收到过消息时也是 0.0。
+-  // 副作用：仅加锁读 radar_age_。
++  // 返回：double，单位毫秒；未收到快照前为 1e9。
++  // 副作用：仅加锁读快照时间缓存。
+@@ -208,0 +216,5 @@
++  int kills() override;
++  std::array<Observation::Enemy, 5> radar_enemies() override;
++  std::array<Observation::Mate, 5> radar_mates() override;
++  std::array<Observation::Outpost, 2> radar_outposts() override;
++  void configure_radar(const FrameTransform& field_to_map, double stale_ms, double lost_ms);
+@@ -249,0 +262 @@
++  std::vector<rclcpp::SubscriptionBase::SharedPtr> subscriptions_;
+@@ -259,2 +272,11 @@
+-  int radar_state_ = kRadarOk;  // 雷达健康缓存，0 ok/1 stale/2 lost，默认 0 便于未接线时跑
+-  double radar_age_ = 0.0;      // 雷达数据年龄缓存，毫秒，0.0 视为新鲜
++  std::array<Observation::Enemy, 5> radar_enemies_{};
++  std::array<Observation::Mate, 5> radar_mates_{};
++  std::array<Observation::Outpost, 2> radar_outposts_{};
++  int radar_kills_ = -1;
++  FrameTransform radar_to_map_{};
++  std::chrono::steady_clock::time_point radar_received_{};
++  double radar_source_age_ms_ = 0.0;
++  uint32_t radar_epoch_ = 0;
++  uint64_t radar_sequence_ = 0;
++  bool radar_received_valid_ = false;
++  double radar_age_locked() const;
+diff --git a/src/sentry_decide/src/ports_adapter.cpp b/src/sentry_decide/src/ports_adapter.cpp
+--- a/src/sentry_decide/src/ports_adapter.cpp
++++ b/src/sentry_decide/src/ports_adapter.cpp
+@@ -12,0 +13 @@
++#include "sentry_decide/core.hpp"
+@@ -14 +15 @@
+-// 只用标准消息搭占位契约；真实接口确认后整体替换，调用方不用改
++// Most ports still use temporary standard messages; radar uses its typed snapshot.
+@@ -27,0 +29 @@
++#include <chrono>
+@@ -63 +65 @@
+-//     ref_ / aim_ / radar_state_ / radar_age_；
++//     ref_ / aim_ / radar target snapshot；
+@@ -96 +98 @@
+-  node_->create_subscription<std_msgs::msg::Int32>(
++  subscriptions_.push_back(node_->create_subscription<std_msgs::msg::Int32>(
+@@ -106 +108 @@
+-      });
++      }));
+@@ -110 +112 @@
+-  node_->create_subscription<nav_msgs::msg::Odometry>(
++  subscriptions_.push_back(node_->create_subscription<nav_msgs::msg::Odometry>(
+@@ -119 +121 @@
+-      });
++      }));
+@@ -124 +126 @@
+-  node_->create_subscription<std_msgs::msg::Float32>(
++  subscriptions_.push_back(node_->create_subscription<std_msgs::msg::Float32>(
+@@ -128 +130 @@
+-      });
++      }));
+@@ -132 +134 @@
+-  node_->create_subscription<std_msgs::msg::Int32>(
++  subscriptions_.push_back(node_->create_subscription<std_msgs::msg::Int32>(
+@@ -136 +138 @@
+-      });
++      }));
+@@ -143 +145 @@
+-  node_->create_subscription<std_msgs::msg::Float64MultiArray>(
++  subscriptions_.push_back(node_->create_subscription<std_msgs::msg::Float64MultiArray>(
+@@ -158 +160 @@
+-      });
++      }));
+@@ -164 +166 @@
+-  node_->create_subscription<std_msgs::msg::Float64MultiArray>(
++  subscriptions_.push_back(node_->create_subscription<std_msgs::msg::Float64MultiArray>(
+@@ -181 +183,61 @@
+-      });
++      }));
++
++  using RadarMsg = rm2026_vision_interface::msg::SentryRadarSnapshot;
++  subscriptions_.push_back(node_->create_subscription<RadarMsg>(
++      cfg_.radar_topic, rclcpp::QoS(1).reliable(),
++      [this](RadarMsg::SharedPtr m) {
++        if (m->header.frame_id != cfg_.radar_frame_id ||
++            !std::isfinite(m->source_age_ms) || m->source_age_ms < 0.0f ||
++            (m->faction != RadarMsg::FACTION_RED && m->faction != RadarMsg::FACTION_BLUE))
++          return;
++
++        FrameTransform radar_to_map;
++        {
++          std::lock_guard<std::mutex> lock(mtx_);
++          radar_to_map = radar_to_map_;
++        }
++        const int roles[5] = {1, 2, 3, 4, 7};
++        const int id_base = m->faction == RadarMsg::FACTION_RED ? 100 : 0;
++        std::array<Observation::Enemy, 5> enemies{};
++        std::array<Observation::Mate, 5> mates{};
++        std::array<Observation::Outpost, 2> outposts{};
++        for (size_t i = 0; i < enemies.size(); ++i)
++        {
++          const auto& src = m->enemies[i];
++          if (!src.known || src.robot_id != id_base + roles[i] ||
++              src.robot_type != roles[i] || !std::isfinite(src.x_m) ||
++              !std::isfinite(src.y_m))
++            continue;
++          auto& dst = enemies[i];
++          dst.id = src.robot_id;
++          dst.type = src.robot_type;
++          dst.rel = apply_frame_transform(Vec2{src.x_m, src.y_m}, radar_to_map);
++          dst.known = true;
++          dst.visible = src.visible;
++          dst.alive_known = src.alive_known;
++          dst.alive = src.alive;
++        }
++        for (size_t i = 0; i < mates.size(); ++i)
++        {
++          const auto& src = m->mates[i];
++          if (!src.known || !std::isfinite(src.x_m) || !std::isfinite(src.y_m) ||
++              src.lane > 2)
++            continue;
++          auto& dst = mates[i];
++          dst.known = true;
++          dst.alive = src.alive;
++          dst.rel = apply_frame_transform(Vec2{src.x_m, src.y_m}, radar_to_map);
++          dst.lane = src.lane;
++        }
++        for (size_t i = 0; i < outposts.size(); ++i)
++        {
++          const auto& src = m->outposts[i];
++          if (!src.known || src.owner > 3 || src.hp < -1 || src.control > 100)
++            continue;
++          auto& dst = outposts[i];
++          dst.known = true;
++          dst.owner = src.owner;
++          dst.hp = src.hp;
++          dst.control = src.control;
++          dst.alive = src.alive;
++        }
+@@ -183,5 +244,0 @@
+-  // 订阅雷达健康状态。m — Int32MultiArray(>=2)：[state, age_ms]。
+-  // 副作用：加锁写 radar_state_（kRadarOk 等枚举）与 radar_age_（数据年龄，ms）。
+-  node_->create_subscription<std_msgs::msg::Int32MultiArray>(
+-      cfg_.radar_topic, 10, [this](std_msgs::msg::Int32MultiArray::SharedPtr m) {  // m — 雷达
+-        if (m->data.size() < 2) return;
+@@ -189,3 +246,14 @@
+-        radar_state_ = m->data[0];
+-        radar_age_ = static_cast<double>(m->data[1]);
+-      });
++        if (radar_received_valid_ && m->pipeline_epoch == radar_epoch_ &&
++            m->sequence <= radar_sequence_ &&
++            radar_age_locked() < cfg_.radar_lost_ms)
++          return;
++        radar_enemies_ = enemies;
++        radar_mates_ = mates;
++        radar_outposts_ = outposts;
++        radar_kills_ = m->kills >= 0 ? m->kills : -1;
++        radar_source_age_ms_ = m->source_age_ms;
++        radar_received_ = std::chrono::steady_clock::now();
++        radar_epoch_ = m->pipeline_epoch;
++        radar_sequence_ = m->sequence;
++        radar_received_valid_ = true;
++      }));
+@@ -195 +263 @@
+-              "RosPorts: goal=%s cmd_vel=%s odom=%s fold=%s referee=%s",
++              "RosPorts: goal=%s cmd_vel=%s odom=%s fold=%s referee=%s radar=%s",
+@@ -198 +266 @@
+-              cfg_.referee_topic.c_str());
++              cfg_.referee_topic.c_str(), cfg_.radar_topic.c_str());
+@@ -383,4 +451,17 @@
+-// 读雷达健康状态。
+-// 参数：无
+-// 返回：状态码（kRadarOk 等），由雷达话题第一个元素给出；默认视作正常
+-// 副作用：无，只加锁读
++void RosPorts::configure_radar(const FrameTransform& field_to_map,
++                               double stale_ms, double lost_ms)
++{
++  std::lock_guard<std::mutex> lock(mtx_);
++  radar_to_map_ = field_to_map;
++  cfg_.radar_stale_ms = stale_ms;
++  cfg_.radar_lost_ms = lost_ms;
++}
++
++double RosPorts::radar_age_locked() const
++{
++  if (!radar_received_valid_) return 1e9;
++  const double elapsed_ms = std::chrono::duration<double, std::milli>(
++      std::chrono::steady_clock::now() - radar_received_).count();
++  return radar_source_age_ms_ + std::max(0.0, elapsed_ms);
++}
++
+@@ -390 +471,4 @@
+-  return radar_state_;
++  const double age_ms = radar_age_locked();
++  if (age_ms > cfg_.radar_lost_ms) return kRadarLost;
++  if (age_ms > cfg_.radar_stale_ms) return kRadarStale;
++  return kRadarOk;
+@@ -393,4 +476,0 @@
+-// 读雷达数据的年龄，用于判断数据是否过期。
+-// 参数：无
+-// 返回：数据年龄，单位 ms（方法名带 _ms，语义按毫秒用）
+-// 副作用：无，只加锁读
+@@ -400 +480,28 @@
+-  return radar_age_;
++  return radar_age_locked();
++}
++
++int RosPorts::kills()
++{
++  std::lock_guard<std::mutex> lock(mtx_);
++  return radar_age_locked() <= cfg_.radar_stale_ms ? radar_kills_ : -1;
++}
++
++std::array<Observation::Enemy, 5> RosPorts::radar_enemies()
++{
++  std::lock_guard<std::mutex> lock(mtx_);
++  return radar_age_locked() <= cfg_.radar_stale_ms
++             ? radar_enemies_ : std::array<Observation::Enemy, 5>{};
++}
++
++std::array<Observation::Mate, 5> RosPorts::radar_mates()
++{
++  std::lock_guard<std::mutex> lock(mtx_);
++  return radar_age_locked() <= cfg_.radar_stale_ms
++             ? radar_mates_ : std::array<Observation::Mate, 5>{};
++}
++
++std::array<Observation::Outpost, 2> RosPorts::radar_outposts()
++{
++  std::lock_guard<std::mutex> lock(mtx_);
++  return radar_age_locked() <= cfg_.radar_stale_ms
++             ? radar_outposts_ : std::array<Observation::Outpost, 2>{};
+diff --git a/src/sentry_decide/src/main.cpp b/src/sentry_decide/src/main.cpp
+--- a/src/sentry_decide/src/main.cpp
++++ b/src/sentry_decide/src/main.cpp
+@@ -196 +196,6 @@
+-      ros_ports_ = std::make_shared<RosPorts>(this, RosPortsConfig{});
++      RosPortsConfig radar_cfg;
++      radar_cfg.radar_topic =
++          declare_parameter<std::string>("radar_topic", "/sentry/radar_snapshot");
++      radar_cfg.radar_frame_id =
++          declare_parameter<std::string>("radar_frame_id", "radar_field");
++      ros_ports_ = std::make_shared<RosPorts>(this, radar_cfg);
+@@ -226,0 +232,7 @@
++    }
++    if (ros_ports_)
++    {
++      ros_ports_->configure_radar(ctx_->cfg.field_to_map, ctx_->cfg.radar_stale_ms,
++                                  ctx_->cfg.radar_lost_ms);
++      if (ctx_->cfg.enemy_rel_frame != 1)
++        RCLCPP_WARN(get_logger(), "雷达坐标经场地系到地图系变换后输入决策，enemy_rel_frame 应设为 1");
+diff --git a/src/sentry_decide/src/core.cpp b/src/sentry_decide/src/core.cpp
+--- a/src/sentry_decide/src/core.cpp
++++ b/src/sentry_decide/src/core.cpp
+@@ -889 +889 @@
+-    if (e.known && e.id > 0) ids.insert(e.id);
++    if (e.known && e.visible && e.id > 0) ids.insert(e.id);
+@@ -1152 +1152 @@
+-    else if (locked != nullptr || aim_has)
++    else if ((locked != nullptr && locked->visible) || aim_has)
