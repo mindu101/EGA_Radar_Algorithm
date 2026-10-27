@@ -15,6 +15,7 @@ replay:
 runtime:
   params_config: "Main_ws/config/params.yaml"
   device_config: "Main_ws/config/device.yaml"
+  model_backend: "pytorch"
   faction: "blue"
   disable_referee_io: true
   launch_rviz: true

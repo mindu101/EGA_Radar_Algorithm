@@ -157,3 +157,43 @@ recordings/full_replay_20260808_153910/rosbag_livox_lidar/metadata.yaml
 ## 感谢
 感谢香港科技大学ENTERPRIZE战队RoboMaster 2025雷达站算法开源、
 东北大学T-DT战队RoboMaster 2025雷达站算法开源。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!--
+
+
+
+失败原因找到了：回放程序仍写死 `/opt/ros/humble/setup.bash`，但这台电脑装的是 Jazzy。我已在 [synchronized_replay.py](/home/mindu/EGA_Radar_Algorithm/tools/synchronized_replay.py:24) 改为默认使用 Jazzy，并将 ROS 日志写入仓库的 `logs/ros`。
+
+在仓库目录运行短样例：
+
+```bash
+```
+
+预检通过后，等主界面出现，依次点击“直接输入外参”→“导入最近外参”→“确认应用”，回到主界面再点“启动雷达站”。主循环就绪后，启动器会自动开始同步播放；`--preflight-only` 只检查数据，不会开始回放。完整录像则运行 `./run_replay_test.sh Main_ws/config/test_full.yaml`，时长约 9 分 54 秒。
+
+Python 编译、相关单元测试和预检均通过。此处的沙箱禁止 ROS DDS 网络通信，所以我无法在这里完整跑完播放；你在自己的终端运行上述命令即可。终端里的 Codex 报错与回放无关，需启动 Codex 时按提示使用 `codex --no-daemon`。 -->这次 ROS 管线已成功启动；Python/UI 退出是因为配置加载的 `.engine` 与本机 TensorRT 10.16.1.11 不兼容。我已让 `test.yaml` 和 `test_full.yaml` 的回放改用仓库里对应的 `.pt` 权重，原有引擎文件和正式运行配置都没有改动。临时回放参数现在指向 `weights/car/best.pt` 和 `weights/armor/armor_best.pt`，两份权重也已通过加载检查。
+
+请重新运行短样例：
+
+```bash
+```
+
+等 UI 出现后，点击“直接输入外参”→“导入最近外参”→“确认应用”，再点“启动雷达站”。回放会在主循环就绪后自动开始。完整录像可用 `./run_replay_test.sh Main_ws/config/test_full.yaml`，时长约 9 分 54 秒。
+
+修改在 [回放配置](/home/mindu/EGA_Radar_Algorithm/Main_ws/config/test.yaml:17) 和 [回放启动器](/home/mindu/EGA_Radar_Algorithm/tools/synchronized_replay.py:212)。我无法在当前沙箱中完成 ROS 网络回放验证；如果重跑仍退出，请把新生成目录里的 `python_app.log` 发我。

@@ -1125,6 +1125,16 @@ class MainEventLoop:
                 "error": error_text,
                 "object_counts": {
                     "detections": len(self.latest_detection_results),
+                    "armor_identity_results": len(self.latest_detection_results),
+                    "yolo_result_boxes": int(
+                        getattr(self.tracker, "latest_yolo_box_count", 0)
+                    ),
+                    "id_assigned_boxes": int(
+                        getattr(self.tracker, "latest_id_box_count", 0)
+                    ),
+                    "vehicle_boxes": len(
+                        getattr(self.tracker, "latest_vehicle_boxes", ())
+                    ),
                     "active_tracks": sum(
                         1 for track in getattr(self, "tracks", []) if track.is_active
                     ),
@@ -1657,6 +1667,18 @@ class MainEventLoop:
                     outpost_alive=outpost_alive,
                     cars=cars,
                     stage_a_timings_ms=freeze_mapping(timings),
+                    yolo_result_box_count=int(
+                        getattr(self.tracker, "latest_yolo_box_count", len(cars))
+                    ),
+                    id_assigned_box_count=int(
+                        getattr(self.tracker, "latest_id_box_count", len(cars))
+                    ),
+                    raw_yolo_boxes=tuple(
+                        tuple(float(value) for value in box)
+                        for box in getattr(
+                            self.tracker, "latest_raw_yolo_boxes", ()
+                        )
+                    ),
                 )
                 replaced = self._pipeline_mailbox.publish_latest(packet)
                 if self.set_event.is_set():
@@ -1930,6 +1952,17 @@ class MainEventLoop:
                         commit_interval_ms=commit_interval_ms,
                         commit_fps=commit_fps,
                         error=armor_error,
+                        vehicle_boxes=tuple(
+                            (
+                                *tuple(float(value) for value in car.car_box[:4]),
+                                float(car.car_conf),
+                                int(car.track_id),
+                            )
+                            for car in packet.cars
+                        ),
+                        yolo_result_box_count=packet.yolo_result_box_count,
+                        id_assigned_box_count=packet.id_assigned_box_count,
+                        raw_yolo_boxes=packet.raw_yolo_boxes,
                     )
                     compatible_lidar_points_cm = [
                         (point[0] * 100.0, point[1] * 100.0)
@@ -2032,6 +2065,8 @@ class MainEventLoop:
                     completed.detections,
                     completed.tracks,
                     source_stamp=completed.frame_stamp,
+                    vehicle_boxes=completed.vehicle_boxes,
+                    raw_yolo_boxes=completed.raw_yolo_boxes,
                 )
         except Exception:
             logger.exception("提交帧 %d 的异步可视化发布失败。", completed.commit_sequence)
@@ -2198,6 +2233,11 @@ class MainEventLoop:
                 "error": completed.error,
                 "object_counts": {
                     "detections": len(completed.detections),
+                    "armor_identity_results": len(completed.detections),
+                    "yolo_result_boxes": completed.yolo_result_box_count,
+                    "raw_yolo_boxes": len(completed.raw_yolo_boxes),
+                    "id_assigned_boxes": completed.id_assigned_box_count,
+                    "vehicle_boxes": len(completed.vehicle_boxes),
                     "active_tracks": sum(
                         1 for track in completed.tracks if track.output_valid
                     ),
@@ -2352,6 +2392,12 @@ class MainEventLoop:
                         self.latest_detection_results,
                         self.tracks,
                         source_stamp=time_stamp,
+                        vehicle_boxes=getattr(
+                            self.tracker, "latest_vehicle_boxes", ()
+                        ),
+                        raw_yolo_boxes=getattr(
+                            self.tracker, "latest_raw_yolo_boxes", ()
+                        ),
                     )
                 self._record_timing_stat(
                     self.loop_timing_stats,

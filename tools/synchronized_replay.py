@@ -21,6 +21,10 @@ import yaml
 WORKSPACE_ROOT = Path(__file__).resolve().parents[1]
 ALGORITHM_ROOT = WORKSPACE_ROOT / "Main_ws"
 ROS_WORKSPACE = WORKSPACE_ROOT / "Lidar_ws"
+ROS_LOG_DIR = WORKSPACE_ROOT / "logs/ros"
+ROS_SETUP = Path(
+    os.environ.get("ROS_SETUP_BASH", "/opt/ros/jazzy/setup.bash")
+).expanduser()
 LIVOX_WORKSPACE = Path(
     os.environ.get("LIVOX_WS_DIR", WORKSPACE_ROOT / "../livox_ws")
 ).resolve()
@@ -205,6 +209,40 @@ def _merge_recorded_calibration(
     return str(import_path), snapshot_info
 
 
+def _apply_model_backend(params: dict, backend: str) -> None:
+    backend = str(backend).strip().lower()
+    if backend in ("configured", "config"):
+        return
+    if backend != "pytorch":
+        raise ReplayConfigurationError(
+            "runtime.model_backend 只能是 configured 或 pytorch"
+        )
+
+    for section in ("car_detector", "armor_detector"):
+        detector = params.get(section)
+        if not isinstance(detector, dict) or not detector.get("weights_path"):
+            raise ReplayConfigurationError(
+                f"params 配置缺少 {section}.weights_path，无法切换 PyTorch 模型"
+            )
+        configured_path = Path(str(detector["weights_path"]))
+        model_path = (
+            configured_path
+            if configured_path.is_absolute()
+            else ALGORITHM_ROOT / configured_path
+        )
+        pytorch_path = model_path.with_suffix(".pt")
+        if not pytorch_path.is_file():
+            raise ReplayConfigurationError(
+                f"找不到 {section} 的 PyTorch 权重: {pytorch_path}"
+            )
+        try:
+            detector["weights_path"] = pytorch_path.resolve().relative_to(
+                ALGORITHM_ROOT
+            ).as_posix()
+        except ValueError:
+            detector["weights_path"] = str(pytorch_path.resolve())
+
+
 def _prepare_runtime_files(config_path: Path) -> dict:
     original = _load_yaml(config_path)
     replay = original.get("replay", {})
@@ -261,6 +299,10 @@ def _prepare_runtime_files(config_path: Path) -> dict:
         "runtime.params_config",
     )
     runtime_params = _load_yaml(runtime_params_source)
+    model_backend = str(
+        original.get("runtime", {}).get("model_backend", "configured")
+    ).strip().lower()
+    _apply_model_backend(runtime_params, model_backend)
     debug = runtime_params.setdefault("debug", {})
     debug["camera_mode"] = "replay"
     debug["camera_color_order"] = "rgb"
@@ -366,12 +408,14 @@ def _ros_environment_script(command: str) -> list[str]:
     script = f"""
 set -e
 unset AMENT_PREFIX_PATH CMAKE_PREFIX_PATH COLCON_PREFIX_PATH PYTHONPATH LD_LIBRARY_PATH
+mkdir -p {shlex.quote(str(ROS_LOG_DIR))}
+export ROS_LOG_DIR={shlex.quote(str(ROS_LOG_DIR))}
 # 海康 MVS 安装目录中的旧版 libusb 会被系统动态链接器优先选中，
 # 而 PCL 需要含 libusb_set_option 的系统版本。ROS 回放进程不使用 MVS，显式预加载系统库。
 if [ -f /lib/x86_64-linux-gnu/libusb-1.0.so.0 ]; then
     export LD_PRELOAD=/lib/x86_64-linux-gnu/libusb-1.0.so.0
 fi
-source /opt/ros/humble/setup.bash
+source {shlex.quote(str(ROS_SETUP))}
 if [ -f {LIVOX_WORKSPACE}/install/setup.bash ]; then
     source {LIVOX_WORKSPACE}/install/setup.bash
 fi
@@ -451,6 +495,10 @@ def _print_preflight(runtime: dict) -> None:
         f"{snapshot.get('image_height') or '未记录'}"
     )
     print(f"  外参导入初值: {runtime['extrinsics_path']}")
+    print(
+        "  推理模型后端: "
+        f"{runtime['config'].get('runtime', {}).get('model_backend', 'configured')}"
+    )
     print(f"  本次运行目录: {runtime['run_dir']}")
 
 
@@ -460,11 +508,17 @@ def run(config_path: Path, preflight_only: bool) -> int:
     if preflight_only:
         return 0
 
+    if not ROS_SETUP.is_file():
+        raise ReplayConfigurationError(
+            f"ROS 2 环境不存在: {ROS_SETUP}。"
+            "本机默认使用 Jazzy；也可通过 ROS_SETUP_BASH 指定 setup.bash。"
+        )
+
     ros_setup = ROS_WORKSPACE / "install/setup.bash"
     if not ros_setup.is_file():
         raise ReplayConfigurationError(
             "Lidar_ws 尚未构建，缺少 install/setup.bash。请先执行：\n"
-            "  source /opt/ros/humble/setup.bash\n"
+            f"  source {shlex.quote(str(ROS_SETUP))}\n"
             "  cd Lidar_ws && ./build.sh"
         )
 
@@ -529,7 +583,7 @@ def run(config_path: Path, preflight_only: bool) -> int:
         )
         python_script = f"""
 set -e
-source /opt/ros/humble/setup.bash
+source {shlex.quote(str(ROS_SETUP))}
 source {ROS_WORKSPACE}/install/setup.bash
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate cud128

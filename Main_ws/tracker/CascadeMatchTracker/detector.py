@@ -97,6 +97,10 @@ class BaseDetector:
         self.detector_timing_stats = {}
         self.detector_frame_timing_ms = {}
         self.track_frame_timing_ms = {}
+        self.latest_vehicle_boxes = ()
+        self.latest_yolo_box_count = 0
+        self.latest_id_box_count = 0
+        self.latest_raw_yolo_boxes = ()
         visual_cfg = config.get("visualization", {})
         self.separate_detection_visualization = bool(visual_cfg.get("separate_detection_view", False))
         self.vis_box_thickness = max(1, int(visual_cfg.get("box_thickness", 2)))
@@ -254,6 +258,15 @@ class BaseDetector:
 
         stage_start = time.perf_counter()
         car_detections, _ = self.car_detector.predict(img)
+        self.latest_yolo_box_count = int(
+            getattr(self.car_detector, "last_result_box_count", len(car_detections))
+        )
+        self.latest_id_box_count = int(
+            getattr(self.car_detector, "last_id_box_count", len(car_detections))
+        )
+        self.latest_raw_yolo_boxes = tuple(
+            getattr(self.car_detector, "last_raw_yolo_boxes", ())
+        )
         duration = time.perf_counter() - stage_start
         module_name = "03 车辆检测与BoT-SORT（模块03总时间）"
         stage_timings_ms[module_name] = duration * 1000.0
@@ -312,6 +325,14 @@ class BaseDetector:
             self._record_timing_stat(
                 self.detector_timing_stats, atomic_name, atomic_duration
             )
+        self.latest_vehicle_boxes = tuple(
+            (
+                *car.car_box,
+                float(car.car_conf),
+                int(car.track_id),
+            )
+            for car in valid_cars
+        )
         return tuple(valid_cars), stage_timings_ms
 
     def build_vehicle_only_detections(

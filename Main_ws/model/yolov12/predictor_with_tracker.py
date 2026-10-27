@@ -1,3 +1,4 @@
+import ultralytics
 from ultralytics import YOLO
 import cv2
 import numpy as np
@@ -35,6 +36,12 @@ class PredictorWithTracker:
         # self.device = self.model.device
         print(self.model.names)
         print(f"Using device: {self.device}")
+        print(
+            "[YOLO] "
+            f"weights={model_path} imgsz={img_size} conf={conf_thres:.3f} "
+            f"ultralytics={ultralytics.__version__} "
+            f"torch={torch.__version__} cuda={torch.version.cuda}"
+        )
         # self.model = self.model.to(self.device)
         # self.model.eval()
         self.tracker_config_path = tracker_config_path
@@ -42,6 +49,9 @@ class PredictorWithTracker:
         self._timing_hooks_installed = False
         self._last_tracker_callback_s = 0.0
         self._last_botsort_update_s = 0.0
+        self.last_result_box_count = 0
+        self.last_id_box_count = 0
+        self.last_raw_yolo_boxes = ()
 
     def _record_timing(self, name: str, duration_s: float):
         """记录最近一次车辆检测内部阶段耗时，单位为秒。"""
@@ -76,6 +86,24 @@ class PredictorWithTracker:
         def timed_tracker_callback(callback_predictor):
             started = time.perf_counter()
             try:
+                # Preserve post-NMS detector boxes before Ultralytics lets the
+                # tracker replace or empty Results.boxes.
+                raw_boxes = []
+                try:
+                    for result in getattr(callback_predictor, "results", ()):
+                        boxes = getattr(result, "boxes", None)
+                        if boxes is None or len(boxes) == 0:
+                            continue
+                        packed = torch.cat(
+                            (boxes.xyxy, boxes.conf[:, None]), dim=1
+                        ).detach().cpu().numpy()
+                        raw_boxes.extend(
+                            tuple(float(value) for value in row)
+                            for row in packed
+                        )
+                    self.last_raw_yolo_boxes = tuple(raw_boxes)
+                except Exception:
+                    self.last_raw_yolo_boxes = ()
                 return original_callback(callback_predictor)
             finally:
                 self._last_tracker_callback_s += time.perf_counter() - started
@@ -117,7 +145,7 @@ class PredictorWithTracker:
         )
         self._record_timing("03.2 model.track总时间（模块03.2总时间）", track_wall_s)
         self._record_timing("03.2.1 Ultralytics内部预处理（模块03.2.1总时间）", preprocess_s)
-        self._record_timing("03.2.2 车辆神经网络TensorRT推理（原子模块03.2.2）", inference_s)
+        self._record_timing("03.2.2 车辆模型推理（原子模块03.2.2）", inference_s)
         self._record_timing("03.2.3 YOLO后处理（模块03.2.3总时间）", postprocess_s)
         self._record_timing("03.2.4 BoT-SORT回调（模块03.2.4总时间）", callback_s)
         self._record_timing("03.2.4.1 BoT-SORT跟踪更新（原子模块03.2.4.1）", botsort_s)
@@ -131,6 +159,9 @@ class PredictorWithTracker:
         self.last_timing_stats = {}
         self._last_tracker_callback_s = 0.0
         self._last_botsort_update_s = 0.0
+        self.last_result_box_count = 0
+        self.last_id_box_count = 0
+        self.last_raw_yolo_boxes = ()
         predict_start = time.perf_counter()
         detections = []
         if image is None or image.shape[0] == 0 or image.shape[1] == 0:
@@ -138,20 +169,11 @@ class PredictorWithTracker:
             return detections, None
 
         stage_start = time.perf_counter()
-        resized_img = cv2.resize(
-            image, (self.input_size, self.input_size), interpolation=cv2.INTER_LINEAR
-        )
+        # 保留原图长宽比，让 Ultralytics 在 imgsz 下执行 letterbox 预处理。
+        # 输入仍是项目内部 RGB；这里仅创建 BGR 通道视图，不复制原始图像。
+        ultralytics_img = rgb_to_ultralytics_bgr_view(image)
         self._record_timing(
-            "03.1.1 原图缩放到车辆模型尺寸（原子模块03.1.1）",
-            time.perf_counter() - stage_start,
-        )
-
-        stage_start = time.perf_counter()
-        # resized_img 仍是项目内部 RGB；Ultralytics 的 NumPy 接口约定为 BGR。
-        # 这里只创建共享内存的通道反转视图，不复制 1280×1280 图像。
-        ultralytics_img = rgb_to_ultralytics_bgr_view(resized_img)
-        self._record_timing(
-            "03.1.2 RGB转BGR共享视图（原子模块03.1.2）",
+            "03.1.1 原图RGB转BGR共享视图（原子模块03.1.1）",
             time.perf_counter() - stage_start,
         )
         stage_start = time.perf_counter()
@@ -160,6 +182,7 @@ class PredictorWithTracker:
             stream=False,
             persist=True,
             tracker=self.tracker_config_path,
+            imgsz=self.input_size,
             conf=self.conf_thres,
             iou=self.iou_thres,
             max_det=self.max_det,
@@ -172,6 +195,8 @@ class PredictorWithTracker:
 
         stage_start = time.perf_counter()
         if results.boxes is None or len(results.boxes) == 0:
+            self.last_result_box_count = 0
+            self.last_id_box_count = 0
             self._record_timing(
                 "03.3.1 跟踪结果张量合并与CPU转换（原子模块03.3.1）",
                 0.0,
@@ -188,6 +213,8 @@ class PredictorWithTracker:
 
 
         boxes = results.boxes
+        self.last_result_box_count = len(boxes)
+        self.last_id_box_count = 0 if boxes.id is None else len(boxes.id)
         if boxes.id is None:
             if self.verbose:
                 print("[Warning]: Tracker has not assigned IDs to current boxes.")

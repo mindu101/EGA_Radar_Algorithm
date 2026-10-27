@@ -1,5 +1,6 @@
 car_detector:
-  weights_path: "weights/car/best.engine" # Path to the car detection model weights
+  # Use the portable PyTorch checkpoint; the bundled TensorRT engine targets another TRT runtime.
+  weights_path: "weights/car/best.pt" # Path to the car detection model weights
   img_size: 1280
   conf_thres: 0.3   
   iou_thres: 0.5
@@ -18,7 +19,7 @@ armor_detector:
   # img_size: [640, 640]
   
   ##### Weights and size configuration for two step detector
-  weights_path: "weights/armor/armor_best.engine" 
+  weights_path: "weights/armor/armor_best.pt"
   img_size: 192
   
   ##### Weights and size configuration END

@@ -41,6 +41,11 @@ cd RM2026_Radar_develop
 ./run_replay_test.sh Main_ws/config/test.yaml
 ```
 
+回放配置的 `runtime.model_backend` 默认设为 `pytorch`，启动器会在本次运行的
+`runtime_params.yaml` 中使用仓库里的 `.pt` 权重，避免复用与当前 TensorRT
+版本不兼容的 `.engine`。该设置不修改正式 `params.yaml`。本机引擎重建后，
+可将该项改为 `configured`，让回放使用正式参数文件指定的模型。
+
 启动后的操作顺序如下：
 
 1. 启动器先启动 `localization`、`dynamic_cloud`、`cluster`，但不启动真实 Livox 驱动。

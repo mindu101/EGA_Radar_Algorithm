@@ -49,6 +49,8 @@ class VisualizationRequest:
     frame: np.ndarray
     detections: tuple[DetectionVisualSnapshot, ...]
     tracks: tuple[TrackVisualSnapshot, ...]
+    vehicle_boxes: tuple[tuple[float, float, float, float, float, int], ...]
+    raw_yolo_boxes: tuple[tuple[float, float, float, float, float], ...]
     source_stamp: Optional[float]
 
 
@@ -144,6 +146,39 @@ def snapshot_tracks(tracks: Sequence) -> tuple[TrackVisualSnapshot, ...]:
     return tuple(snapshots)
 
 
+def snapshot_vehicle_boxes(boxes: Sequence) -> tuple[tuple, ...]:
+    """复制 A 阶段车辆框，供 UI 在装甲识别为空时仍绘制 YOLO 结果。"""
+    snapshots = []
+    for item in boxes:
+        if item is None or len(item) < 6:
+            continue
+        box = _snapshot_box(item[:4])
+        try:
+            confidence = float(item[4])
+            track_id = int(item[5])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if box is not None and np.isfinite(confidence):
+            snapshots.append((*box, confidence, track_id))
+    return tuple(snapshots)
+
+
+def snapshot_raw_yolo_boxes(boxes: Sequence) -> tuple[tuple, ...]:
+    """Copy post-NMS detector boxes before tracker filtering for UI fallback."""
+    snapshots = []
+    for item in boxes:
+        if item is None or len(item) < 5:
+            continue
+        box = _snapshot_box(item[:4])
+        try:
+            confidence = float(item[4])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if box is not None and np.isfinite(confidence):
+            snapshots.append((*box, confidence))
+    return tuple(snapshots)
+
+
 class AsyncTrackingVisualizer:
     """单槽位后台渲染器：始终只处理最新一帧，不让 UI 任务反压定位。"""
 
@@ -201,7 +236,15 @@ class AsyncTrackingVisualizer:
             )
             self._thread.start()
 
-    def submit(self, frame, detections: Sequence, tracks: Sequence, source_stamp=None):
+    def submit(
+        self,
+        frame,
+        detections: Sequence,
+        tracks: Sequence,
+        source_stamp=None,
+        vehicle_boxes: Sequence = (),
+        raw_yolo_boxes: Sequence = (),
+    ):
         """非阻塞提交；已有待渲染任务时直接以新任务覆盖。"""
         if not self.enabled or self._closed or frame is None:
             return False
@@ -215,6 +258,8 @@ class AsyncTrackingVisualizer:
             frame=frame_view,
             detections=snapshot_detections(detections),
             tracks=snapshot_tracks(tracks),
+            vehicle_boxes=snapshot_vehicle_boxes(vehicle_boxes),
+            raw_yolo_boxes=snapshot_raw_yolo_boxes(raw_yolo_boxes),
             source_stamp=self._normalize_stamp(source_stamp),
         )
 
@@ -311,6 +356,26 @@ class AsyncTrackingVisualizer:
             1, int(round(self.label_font_thickness * scale))
         )
 
+        for track in request.tracks:
+            color = (0, 0, 255) if track.class_id < 5 else (255, 0, 0)
+            x1, y1, x2, y2 = scaled_box(track.car_box)
+            cv2.rectangle(
+                vis_img,
+                (x1, y1),
+                (x2, y2),
+                color,
+                box_thickness,
+            )
+            cv2.putText(
+                vis_img,
+                track.label,
+                (x1, max(label_offset_y, y1 - label_offset_y)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                label_font_scale,
+                color,
+                label_thickness,
+            )
+
         for detection in request.detections:
             x1_car, y1_car, x2_car, y2_car = scaled_box(detection.car_box)
             cv2.rectangle(
@@ -379,25 +444,40 @@ class AsyncTrackingVisualizer:
                         label_thickness,
                     )
 
-        for track in request.tracks:
-            color = (0, 0, 255) if track.class_id < 5 else (255, 0, 0)
-            x1, y1, x2, y2 = scaled_box(track.car_box)
+        for x1_raw, y1_raw, x2_raw, y2_raw, confidence, track_id in request.vehicle_boxes:
+            x1, y1, x2, y2 = scaled_box((x1_raw, y1_raw, x2_raw, y2_raw))
             cv2.rectangle(
                 vis_img,
                 (x1, y1),
                 (x2, y2),
-                color,
+                (0, 255, 0),
                 box_thickness,
             )
             cv2.putText(
                 vis_img,
-                track.label,
+                f"YOLO {confidence:.2f} ID:{track_id}",
                 (x1, max(label_offset_y, y1 - label_offset_y)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 label_font_scale,
-                color,
+                (0, 255, 0),
                 label_thickness,
             )
+
+        if not request.vehicle_boxes:
+            for x1_raw, y1_raw, x2_raw, y2_raw, confidence in request.raw_yolo_boxes:
+                x1, y1, x2, y2 = scaled_box((x1_raw, y1_raw, x2_raw, y2_raw))
+                cv2.rectangle(
+                    vis_img, (x1, y1), (x2, y2), (0, 255, 0), box_thickness
+                )
+                cv2.putText(
+                    vis_img,
+                    f"YOLO {confidence:.2f}",
+                    (x1, max(label_offset_y, y1 - label_offset_y)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    label_font_scale,
+                    (0, 255, 0),
+                    label_thickness,
+                )
 
         return vis_img
 

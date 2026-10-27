@@ -145,6 +145,40 @@ class AsyncTrackingVisualizerTest(unittest.TestCase):
         image, _, _ = _wait_for_sequence(visualizer, 1)
         self.assertGreater(int(image.max()), 0)
 
+    def test_stage_a_vehicle_boxes_render_green_without_armor_detections(self):
+        visualizer = AsyncTrackingVisualizer(_config())
+        self.addCleanup(visualizer.close)
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        self.assertTrue(
+            visualizer.submit(
+                frame,
+                [],
+                [],
+                vehicle_boxes=[(100, 100, 300, 300, 0.88, 12)],
+            )
+        )
+        image, _, _ = _wait_for_sequence(visualizer, 1)
+
+        self.assertTrue(np.array_equal(image[50, 50], [0, 255, 0]))
+
+    def test_raw_yolo_boxes_render_when_tracker_has_no_vehicle_boxes(self):
+        visualizer = AsyncTrackingVisualizer(_config())
+        self.addCleanup(visualizer.close)
+        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+
+        self.assertTrue(
+            visualizer.submit(
+                frame,
+                [],
+                [],
+                raw_yolo_boxes=[(100, 100, 300, 300, 0.88)],
+            )
+        )
+        image, _, _ = _wait_for_sequence(visualizer, 1)
+
+        self.assertTrue(np.array_equal(image[50, 50], [0, 255, 0]))
+
     def test_disabled_visualizer_does_not_start_or_accept_tasks(self):
         visualizer = AsyncTrackingVisualizer(_config(enabled=False))
         self.addCleanup(visualizer.close)

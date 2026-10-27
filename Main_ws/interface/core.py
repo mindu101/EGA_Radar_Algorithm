@@ -32,6 +32,15 @@ logging.basicConfig(
 )
 
 
+def _scrollable_panel(widget):
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setWidget(widget)
+    scroll.setMinimumSize(0, 0)
+    return scroll
+
+
 def get_extrinsics_record_dir():
     """返回 UI 外参记录目录。"""
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -943,12 +952,17 @@ class RadarStationMainWindow(QMainWindow):
             | Qt.WindowMinMaxButtonsHint
             | Qt.WindowCloseButtonHint
         )
+        self.setMinimumSize(900, 560)
         # self.setGeometry(100, 100, 2048, 1534)
         screen = QApplication.primaryScreen()
         if screen is not None:
             screen_rect = screen.availableGeometry()
-            initial_width = min(2048, max(1280, int(screen_rect.width() * 0.9)))
-            initial_height = min(1534, max(850, int(screen_rect.height() * 0.9)))
+            initial_width = min(
+                screen_rect.width(), max(1280, int(screen_rect.width() * 0.95))
+            )
+            initial_height = min(
+                screen_rect.height(), max(850, int(screen_rect.height() * 0.95))
+            )
             initial_width = min(initial_width, screen_rect.width())
             initial_height = min(initial_height, screen_rect.height())
             initial_x = screen_rect.x() + max(0, (screen_rect.width() - initial_width) // 2)
@@ -957,12 +971,6 @@ class RadarStationMainWindow(QMainWindow):
         else:
             self.setGeometry(100, 100, 1600, 1000)
         ########################################################################
-        self._window_aspect_ratio = 2048.0 / 1534.0
-        self._is_adjusting_aspect = False
-        self._pending_aspect_size = None
-        self._aspect_resize_timer = QTimer(self)
-        self._aspect_resize_timer.setSingleShot(True)
-        self._aspect_resize_timer.timeout.connect(self._apply_pending_aspect_resize)
         self.timing_debug_enabled = True
 
         ########################################################################
@@ -1133,19 +1141,6 @@ class RadarStationMainWindow(QMainWindow):
         # # 拖拽期间进行防抖，停止拖拽后再统一修正比例，避免交互卡顿
         # self._aspect_resize_timer.start(60)
 
-    def _apply_pending_aspect_resize(self):
-        """异步应用等比尺寸，减少窗口拖拽时的重绘抖动。"""
-        if self._pending_aspect_size is None:
-            return
-        target_size = self._pending_aspect_size
-        self._pending_aspect_size = None
-        if self.size() == target_size:
-            return
-
-        self._is_adjusting_aspect = True
-        self.resize(target_size)
-        self._is_adjusting_aspect = False
-
     def init_ui(self):
         """初始化用户界面"""
         central_widget = QWidget()
@@ -1163,10 +1158,25 @@ class RadarStationMainWindow(QMainWindow):
         # 右侧区域：控制面板和状态监控
         right_panel = self.create_control_panel()
 
-        # 添加到主布局
-        main_layout.addWidget(left_panel, 2)  # 左侧占2/5
-        main_layout.addWidget(center_panel, 2)  # 中间占2/5
-        main_layout.addWidget(right_panel, 1)  # 右侧占1/5
+        self.main_splitter = QSplitter(Qt.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.addWidget(left_panel)
+        self.main_splitter.addWidget(center_panel)
+        self.control_scroll = _scrollable_panel(right_panel)
+        self.control_scroll.setMinimumWidth(240)
+        self.main_splitter.addWidget(self.control_scroll)
+        self.main_splitter.setHandleWidth(8)
+        available_width = max(1, self.width())
+        self.main_splitter.setSizes(
+            [
+                int(available_width * 0.40),
+                int(available_width * 0.34),
+                int(available_width * 0.26),
+            ]
+        )
+        for index, stretch in enumerate((4, 4, 3)):
+            self.main_splitter.setStretchFactor(index, stretch)
+        main_layout.addWidget(self.main_splitter)
 
     # 修改原有的RadarStationMainWindow类中的create_image_panel方法
     def create_image_panel(self):
@@ -1181,11 +1191,11 @@ class RadarStationMainWindow(QMainWindow):
         self.target_tracker_size = QSize(819, 700)
         # self.target_camera_size = QSize(576, 432)  # 2/5 of 1440px width
         # self.target_tracker_size = QSize(576, 432)
-        self.image_display_min_size = QSize(320, 440)
+        self.image_display_min_size = QSize(240, 180)
         self.visualization_label = QLabel("检测与追踪画面")
         self.visualization_label.setMinimumSize(self.image_display_min_size)
         self.visualization_label.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Expanding
+            QSizePolicy.Ignored, QSizePolicy.Ignored
         )
         self.visualization_label.setStyleSheet("border: 1px solid black")
         self.visualization_label.setAlignment(Qt.AlignCenter)
@@ -1257,19 +1267,20 @@ class RadarStationMainWindow(QMainWindow):
             self.target_camera_size.height() // 2,
         )
         outpost_row = QWidget()
-        outpost_layout = QHBoxLayout(outpost_row)
+        outpost_layout = QVBoxLayout(outpost_row)
         outpost_layout.setContentsMargins(0, 0, 0, 0)
 
         self.outpost_binary_label = QLabel("前哨站二值图")
-        self.outpost_binary_label.setFixedSize(self.outpost_binary_size)
+        self.outpost_binary_label.setMinimumSize(160, 100)
+        self.outpost_binary_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.outpost_binary_label.setStyleSheet("border: 1px solid black")
         self.outpost_binary_label.setAlignment(Qt.AlignCenter)
-        outpost_layout.addWidget(self.outpost_binary_label, 0, Qt.AlignLeft | Qt.AlignTop)
+        outpost_layout.addWidget(self.outpost_binary_label, 1)
 
         outpost_cfg = self._load_outpost_light_ui_config()
         outpost_controls_widget = QWidget()
         outpost_controls_layout = QHBoxLayout(outpost_controls_widget)
-        outpost_controls_layout.setContentsMargins(8, 0, 0, 0)
+        outpost_controls_layout.setContentsMargins(0, 0, 0, 0)
 
         hsv_group = QGroupBox("HSV阈值")
         hsv_layout = QGridLayout(hsv_group)
@@ -1360,14 +1371,19 @@ class RadarStationMainWindow(QMainWindow):
         ########################################################################
         outpost_controls_layout.addWidget(hsv_group)
         outpost_controls_layout.addWidget(state_group)
-        outpost_layout.addWidget(outpost_controls_widget)
-        outpost_layout.addStretch()
-        layout.addWidget(outpost_row, 0)
+        self.image_controls_tabs = QTabWidget()
+        self.image_controls_tabs.setMinimumSize(260, 180)
+        self.image_controls_tabs.setMaximumHeight(460)
+        self.image_controls_tabs.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Preferred
+        )
+        layout.addWidget(self.image_controls_tabs, 1)
         ########################################################################
 
 
         # 相机控制按钮
-        camera_controls = QHBoxLayout()
+        camera_controls_widget = QWidget()
+        camera_controls = QGridLayout(camera_controls_widget)
 
         # Basic control of camera
         basic_controls = QHBoxLayout()
@@ -1377,7 +1393,7 @@ class RadarStationMainWindow(QMainWindow):
 
         basic_controls.addWidget(self.keypoint_btn)
         basic_controls.addWidget(self.sensor_record_btn)
-        camera_controls.addLayout(basic_controls)
+        camera_controls.addLayout(basic_controls, 0, 0)
 
         # 整车检测置信度运行时调节
         car_detect_controls = QHBoxLayout()
@@ -1399,7 +1415,7 @@ class RadarStationMainWindow(QMainWindow):
         self.current_car_conf_label.setStyleSheet("color: gray; font-size: 12px;")
         car_detect_controls.addWidget(self.current_car_conf_label)
         car_detect_controls.addStretch()
-        camera_controls.addLayout(car_detect_controls)
+        camera_controls.addLayout(car_detect_controls, 0, 1)
 
         # Exposure controls
         exposure_controls = QHBoxLayout()
@@ -1426,7 +1442,7 @@ class RadarStationMainWindow(QMainWindow):
         exposure_controls.addWidget(self.current_exposure_label)
 
         exposure_controls.addStretch()  # 添加弹性空间
-        camera_controls.addLayout(exposure_controls)
+        camera_controls.addLayout(exposure_controls, 1, 0)
 
         # Gain controls
         gain_controls = QHBoxLayout()
@@ -1453,9 +1469,15 @@ class RadarStationMainWindow(QMainWindow):
         gain_controls.addWidget(self.current_gain_label)
 
         gain_controls.addStretch()  # 添加弹性空间
-        camera_controls.addLayout(gain_controls)
+        camera_controls.addLayout(gain_controls, 1, 1)
 
-        layout.addLayout(camera_controls)
+        self.image_controls_tabs.addTab(
+            _scrollable_panel(camera_controls_widget), "相机控制"
+        )
+        self.image_controls_tabs.addTab(outpost_row, "前哨站二值图")
+        self.image_controls_tabs.addTab(
+            _scrollable_panel(outpost_controls_widget), "前哨站参数"
+        )
 
         # 连接信号槽
         self.exposure_confirm_btn.clicked.connect(self.on_exposure_confirm)
@@ -1478,7 +1500,7 @@ class RadarStationMainWindow(QMainWindow):
         layout.addWidget(self.field_view)
 
         # 投影控制选项
-        controls = QHBoxLayout()
+        controls = QGridLayout()
         self.show_enemy_cb = QCheckBox("显示敌方车辆")
         self.show_ally_cb = QCheckBox("显示己方车辆")
         self.show_guessed_cb = QCheckBox("显示猜点")
@@ -1495,13 +1517,16 @@ class RadarStationMainWindow(QMainWindow):
         self.show_info_wave_cb.setChecked(True)
         self.show_tracking_cb.setChecked(True)
 
-        controls.addWidget(self.show_enemy_cb)
-        controls.addWidget(self.show_ally_cb)
-        controls.addWidget(self.show_guessed_cb)
-        controls.addWidget(self.show_lidar_cb)
-        controls.addWidget(self.show_projection_cb)
-        controls.addWidget(self.show_info_wave_cb)
-        controls.addWidget(self.show_tracking_cb)
+        for index, checkbox in enumerate((
+            self.show_enemy_cb,
+            self.show_ally_cb,
+            self.show_guessed_cb,
+            self.show_lidar_cb,
+            self.show_projection_cb,
+            self.show_info_wave_cb,
+            self.show_tracking_cb,
+        )):
+            controls.addWidget(checkbox, index // 2, index % 2)
         layout.addLayout(controls)
 
         self.show_enemy_cb.stateChanged.connect(self.update_display_settings)
@@ -2236,8 +2261,11 @@ class RadarStationMainWindow(QMainWindow):
 
         height, width, channel = image.shape
         q_image = QImage(image.data, width, height, channel * width, QImage.Format_RGB888)
+        target_size = self.outpost_binary_label.contentsRect().size()
+        if target_size.width() <= 1 or target_size.height() <= 1:
+            target_size = self.outpost_binary_size
         pixmap = QPixmap.fromImage(q_image).scaled(
-            self.outpost_binary_size, Qt.KeepAspectRatio, Qt.FastTransformation
+            target_size, Qt.KeepAspectRatio, Qt.FastTransformation
         )
         self.outpost_binary_label.setPixmap(pixmap)
 
@@ -3687,7 +3715,7 @@ class FieldProjectionWidget(QWidget):
             ).copy()
             self._field_pixmap = QPixmap.fromImage(q_image)
 
-        self.setMinimumSize(560, 460)
+        self.setMinimumSize(240, 180)
 
         self.vehicles = []  # 车辆位置数据
         self.info_wave_positions_cm = {}  # 信息波 0x0A01 对方机器人坐标
@@ -6042,7 +6070,7 @@ class KeypointCalibrationDialog(QDialog):
 
 def launch():
     """启动雷达站主界面"""
-    qt_plugin_path = os.path.join(sys.prefix, "plugins")
+    qt_plugin_path = QLibraryInfo.location(QLibraryInfo.PluginsPath)
     QCoreApplication.setLibraryPaths([qt_plugin_path])
     os.environ["QT_PLUGIN_PATH"] = qt_plugin_path
     os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = os.path.join(

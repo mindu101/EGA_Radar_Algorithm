@@ -47,6 +47,9 @@ class StageAPacket:
     outpost_alive: int
     cars: Tuple[CarStageItem, ...]
     stage_a_timings_ms: Mapping[str, float]
+    yolo_result_box_count: int = 0
+    id_assigned_box_count: int = 0
+    raw_yolo_boxes: Tuple[Tuple[float, float, float, float, float], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -101,6 +104,11 @@ class CompletedFrame:
     commit_interval_ms: Optional[float]
     commit_fps: Optional[float]
     error: Optional[str] = None
+    # A 阶段原始车辆检测框，用于 UI 即使没有装甲分类结果也能显示 YOLO 框。
+    vehicle_boxes: Tuple[Tuple[float, float, float, float, float, int], ...] = ()
+    yolo_result_box_count: int = 0
+    id_assigned_box_count: int = 0
+    raw_yolo_boxes: Tuple[Tuple[float, float, float, float, float], ...] = ()
 
 
 @dataclass(frozen=True)

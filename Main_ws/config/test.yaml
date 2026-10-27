@@ -21,6 +21,8 @@ replay:
 runtime:
   params_config: "Main_ws/config/params.yaml"
   device_config: "Main_ws/config/device.yaml"
+  # 回放使用跨 TensorRT 版本的 PyTorch 权重；比赛/实机配置不受影响。
+  model_backend: "pytorch"
   # red/blue 可固定测试阵营；manual 保持裁判对象初值或由人工设置。
   faction: "blue"
   # 位置检测测试不启动串口、裁判 UDP 和波形通信线程。
